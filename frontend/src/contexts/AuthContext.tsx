@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { User } from '../types/user.types';
 import { authApi } from '../services/api';
+import { logger } from '../utils/logger';
 
 interface AuthContextType {
   user: User | null;
@@ -30,12 +31,57 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, []);
 
+  // Periodic token validation - runs independently of user state to ensure cleanup on unmount
+  // Fix H1: Interval now always cleans up on unmount, not dependent on user state change
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    // Clear any existing interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
+    // Only set up interval if user is logged in
+    if (!user) return;
+
+    let isMounted = true;
+
+    const checkTokenValidity = async () => {
+      if (!isMounted) return;
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+          if (isMounted) setUser(null);
+          return;
+        }
+        await authApi.getMe();
+      } catch (error: any) {
+        if (error?.response?.status === 401 && isMounted) {
+          localStorage.removeItem('token');
+          setUser(null);
+        }
+      }
+    };
+
+    // Check every 5 minutes
+    intervalRef.current = setInterval(checkTokenValidity, 5 * 60 * 1000);
+
+    return () => {
+      isMounted = false;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [user]);
+
   const refreshUser = async (): Promise<void> => {
     try {
       const userData = await authApi.getMe();
       setUser(userData);
     } catch (error) {
-      console.error('Failed to refresh user:', error);
+      logger.error('Failed to refresh user:', error);
       throw error;
     } finally {
       setIsLoading(false);

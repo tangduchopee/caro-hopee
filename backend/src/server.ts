@@ -11,7 +11,7 @@ import gameRoutes from './routes/gameRoutes';
 import gameStatsRoutes from './routes/gameStatsRoutes';
 import leaderboardRoutes from './routes/leaderboardRoutes';
 import userRoutes from './routes/userRoutes';
-import { authLimiter } from './middleware/rateLimiter';
+import { authLimiter, gameCreationLimiter, gameJoinLimiter, apiLimiter } from './middleware/rateLimiter';
 
 // Load environment variables
 dotenv.config();
@@ -25,9 +25,12 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Apply rate limiting to auth routes
+// Apply rate limiting (M4 fix: prevent DoS attacks)
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
+app.use('/api/games/create', gameCreationLimiter);
+app.use('/api/games/join', gameJoinLimiter);
+app.use('/api/leaderboard', apiLimiter);
 
 // Routes
 app.use('/api/auth', authRoutes);

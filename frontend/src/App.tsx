@@ -6,6 +6,7 @@ import { Box, GlobalStyles } from '@mui/material';
 import { AuthProvider } from './contexts/AuthContext';
 import { SocketProvider } from './contexts/SocketContext';
 import { GameProvider } from './contexts/GameContext';
+import ErrorBoundary from './components/ErrorBoundary';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import GameRoomPage from './pages/GameRoomPage';
@@ -229,13 +230,15 @@ function App() {
           touchAction: 'pan-x pan-y',
         }}
       >
-        <AuthProvider>
-          <SocketProvider>
-            <GameProvider>
-              <RouterProvider router={router} />
-            </GameProvider>
-          </SocketProvider>
-        </AuthProvider>
+        <ErrorBoundary>
+          <AuthProvider>
+            <SocketProvider>
+              <GameProvider>
+                <RouterProvider router={router} />
+              </GameProvider>
+            </SocketProvider>
+          </AuthProvider>
+        </ErrorBoundary>
       </Box>
     </ThemeProvider>
   );

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -18,6 +18,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import { gameApi } from '../../services/api';
 import { GameHistory } from '../../types/game.types';
+import { logger } from '../../utils/logger';
 
 interface HistoryModalProps {
   open: boolean;
@@ -44,13 +45,13 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
   const loadHistory = async (): Promise<void> => {
     setLoading(true);
     try {
-      console.log('[HistoryModal] Loading game history...');
+      logger.log('[HistoryModal] Loading game history...');
       const data = await gameApi.getGameHistory();
-      console.log('[HistoryModal] History loaded:', data);
+      logger.log('[HistoryModal] History loaded:', data);
       setHistory(data.history || []);
     } catch (error: any) {
-      console.error('[HistoryModal] Failed to load game history:', error);
-      console.error('[HistoryModal] Error details:', error.response?.data || error.message);
+      logger.error('[HistoryModal] Failed to load game history:', error);
+      logger.error('[HistoryModal] Error details:', error.response?.data || error.message);
       setHistory([]);
     } finally {
       setLoading(false);
@@ -113,9 +114,8 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
       PaperProps={{
         sx: {
           borderRadius: 4,
-          background: 'rgba(232, 235, 239, 0.98)',
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
+          // Solid color instead of blur for better paint performance
+          background: '#f5f7f9',
         },
       }}
     >
@@ -292,7 +292,11 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
                 p: 2,
               }}
             >
-              <GameBoardStatic board={selectedGame.board} boardSize={selectedGame.boardSize} />
+              <GameBoardStatic 
+                board={selectedGame.board} 
+                boardSize={selectedGame.boardSize}
+                winningLine={selectedGame.winningLine}
+              />
             </Box>
           </Box>
         ) : null}
@@ -311,10 +315,12 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
 interface GameBoardStaticProps {
   board: number[][];
   boardSize: number;
+  winningLine?: Array<{ row: number; col: number }>;
 }
 
-const GameBoardStatic: React.FC<GameBoardStaticProps> = ({ board, boardSize }) => {
+const GameBoardStatic: React.FC<GameBoardStaticProps> = ({ board, boardSize, winningLine }) => {
   const [cellSize, setCellSize] = useState(30);
+  const boardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Calculate cell size based on board size
@@ -335,9 +341,11 @@ const GameBoardStatic: React.FC<GameBoardStaticProps> = ({ board, boardSize }) =
     return 'transparent';
   };
 
+
   return (
     <Box
       sx={{
+        position: 'relative',
         display: 'grid',
         gridTemplateColumns: `repeat(${boardSize}, 1fr)`,
         gap: 0,
@@ -346,30 +354,160 @@ const GameBoardStatic: React.FC<GameBoardStaticProps> = ({ board, boardSize }) =
         overflow: 'hidden',
         boxShadow: 'inset 0 2px 8px rgba(126, 200, 227, 0.1)',
       }}
+      ref={boardRef}
     >
       {board.map((row, rowIndex) =>
-        row.map((cell, colIndex) => (
-          <Box
-            key={`${rowIndex}-${colIndex}`}
-            sx={{
-              width: `${cellSize}px`,
-              height: `${cellSize}px`,
-              minWidth: `${cellSize}px`,
-              minHeight: `${cellSize}px`,
-              border: '1px solid rgba(126, 200, 227, 0.3)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: '#ffffff',
-              fontSize: `${cellSize * 0.65}px`,
-              fontWeight: 800,
-              color: getCellColor(cell),
-            }}
-          >
-            {getCellContent(cell)}
-          </Box>
-        ))
+        row.map((cell, colIndex) => {
+          return (
+            <Box
+              key={`${rowIndex}-${colIndex}`}
+              sx={{
+                width: `${cellSize}px`,
+                height: `${cellSize}px`,
+                minWidth: `${cellSize}px`,
+                minHeight: `${cellSize}px`,
+                border: '1px solid rgba(126, 200, 227, 0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#ffffff',
+                fontSize: `${cellSize * 0.65}px`,
+                fontWeight: 800,
+                color: getCellColor(cell),
+              }}
+            >
+              {getCellContent(cell)}
+            </Box>
+          );
+        })
       )}
+      {/* Winning line overlay - rounded rectangle for horizontal/vertical, special shape for diagonal */}
+      {winningLine && winningLine.length >= 5 && (() => {
+        // Determine direction: horizontal, vertical, or diagonal
+        const rows = winningLine.map(c => c.row);
+        const cols = winningLine.map(c => c.col);
+        const uniqueRows = Array.from(new Set(rows));
+        const uniqueCols = Array.from(new Set(cols));
+        
+        const isHorizontal = uniqueRows.length === 1; // All cells in same row
+        const isVertical = uniqueCols.length === 1; // All cells in same column
+        const isDiagonal = !isHorizontal && !isVertical;
+        
+        if (isDiagonal) {
+          // Diagonal line: draw a special diamond/rhombus shape with pointed ends
+          // Sort cells to get first and last
+          const sortedCells = [...winningLine].sort((a, b) => {
+            if (a.row !== b.row) return a.row - b.row;
+            return a.col - b.col;
+          });
+          
+          const firstCell = sortedCells[0];
+          const lastCell = sortedCells[sortedCells.length - 1];
+          
+          // Determine diagonal direction
+          const isMainDiagonal = (lastCell.col - firstCell.col) === (lastCell.row - firstCell.row);
+          
+          // Calculate center points of first and last cells
+          const firstCenterX = (firstCell.col + 0.5) * cellSize;
+          const firstCenterY = (firstCell.row + 0.5) * cellSize;
+          const lastCenterX = (lastCell.col + 0.5) * cellSize;
+          const lastCenterY = (lastCell.row + 0.5) * cellSize;
+          
+          // Calculate the offset for the pointed ends (extend beyond cell centers)
+          const offset = cellSize * 0.4; // How much to extend beyond the cell
+          
+          // Calculate perpendicular direction for the width of the shape
+          const dx = lastCenterX - firstCenterX;
+          const dy = lastCenterY - firstCenterY;
+          const length = Math.sqrt(dx * dx + dy * dy);
+          const perpX = -dy / length; // Perpendicular X
+          const perpY = dx / length;  // Perpendicular Y
+          
+          const widthOffset = cellSize * 0.3; // Half width of the shape
+          
+          // Create polygon points: 4 points forming a diamond shape
+          // Point 1: Top-left of first cell (extended)
+          // Point 2: Top-right of first cell (extended)
+          // Point 3: Bottom-right of last cell (extended)
+          // Point 4: Bottom-left of last cell (extended)
+          
+          const p1x = firstCenterX - offset * (dx / length) - widthOffset * perpX;
+          const p1y = firstCenterY - offset * (dy / length) - widthOffset * perpY;
+          
+          const p2x = firstCenterX - offset * (dx / length) + widthOffset * perpX;
+          const p2y = firstCenterY - offset * (dy / length) + widthOffset * perpY;
+          
+          const p3x = lastCenterX + offset * (dx / length) + widthOffset * perpX;
+          const p3y = lastCenterY + offset * (dy / length) + widthOffset * perpY;
+          
+          const p4x = lastCenterX + offset * (dx / length) - widthOffset * perpX;
+          const p4y = lastCenterY + offset * (dy / length) - widthOffset * perpY;
+          
+          return (
+            <svg
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none',
+                zIndex: 5,
+              }}
+            >
+              <polygon
+                points={`${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y} ${p4x},${p4y}`}
+                fill="none"
+                stroke="#ff6b6b"
+                strokeWidth="3"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+            </svg>
+          );
+        } else {
+          // Horizontal or vertical: use rectangle
+          let rectX: number;
+          let rectY: number;
+          let rectWidth: number;
+          let rectHeight: number;
+          
+          if (isHorizontal) {
+            // Horizontal line: rectangle spans only the columns of winning cells
+            const minCol = Math.min(...cols);
+            const maxCol = Math.max(...cols);
+            rectX = minCol * cellSize;
+            rectY = rows[0] * cellSize;
+            rectWidth = (maxCol - minCol + 1) * cellSize;
+            rectHeight = cellSize;
+          } else {
+            // Vertical line: rectangle spans only the rows of winning cells
+            const minRow = Math.min(...rows);
+            const maxRow = Math.max(...rows);
+            rectX = cols[0] * cellSize;
+            rectY = minRow * cellSize;
+            rectWidth = cellSize;
+            rectHeight = (maxRow - minRow + 1) * cellSize;
+          }
+          
+          return (
+            <Box
+              sx={{
+                position: 'absolute',
+                left: `${rectX}px`,
+                top: `${rectY}px`,
+                width: `${rectWidth}px`,
+                height: `${rectHeight}px`,
+                border: '3px solid #ff6b6b',
+                borderRadius: 2,
+                pointerEvents: 'none',
+                zIndex: 5,
+                boxSizing: 'border-box',
+              }}
+            />
+          );
+        }
+      })()}
     </Box>
   );
 };

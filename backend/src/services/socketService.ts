@@ -7,6 +7,23 @@ import User from '../models/User';
 import { makeMove, undoMove } from './gameEngine';
 import { checkWin } from './winChecker';
 import { PlayerNumber } from '../types/game.types';
+import { saveGameHistoryIfFinished } from './gameHistoryService';
+
+// Throttle map for global broadcasts (fixes Issue #9: Unthrottled global socket broadcasts)
+const lastBroadcastTime = new Map<string, number>();
+const BROADCAST_THROTTLE_MS = 100; // Min 100ms between same-type broadcasts
+
+// Throttled broadcast helper - prevents spam to all clients
+const throttledBroadcast = (io: SocketIOServer, event: string, data: any): boolean => {
+  const now = Date.now();
+  const lastTime = lastBroadcastTime.get(event) || 0;
+  if (now - lastTime < BROADCAST_THROTTLE_MS) {
+    return false; // Skip this broadcast
+  }
+  lastBroadcastTime.set(event, now);
+  io.emit(event, data);
+  return true;
+};
 
 interface SocketData {
   userId?: string;
@@ -100,36 +117,21 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
           return;
         }
 
-        console.log('Make move received:', { roomId, row, col, socketData });
-        console.log('Game state:', {
-          player1: game.player1?.toString(),
-          player1GuestId: game.player1GuestId,
-          player2: game.player2?.toString(),
-          player2GuestId: game.player2GuestId,
-          currentPlayer: game.currentPlayer,
-          gameStatus: game.gameStatus,
-        });
+        // Debug logging reduced for production performance (fixes Issue #16)
 
         // Determine player number - check both authenticated and guest
         let player: PlayerNumber = 1;
         let playerDetermined = false;
         
-        console.log('Determining player - socketData:', {
-          userId: socketData.userId,
-          playerId: socketData.playerId,
-          isGuest: socketData.isGuest,
-        });
         
         // First check authenticated user
         if (socketData.userId) {
           if (game.player1?.toString() === socketData.userId) {
             player = 1;
             playerDetermined = true;
-            console.log('Matched by authenticated userId as player1');
           } else if (game.player2?.toString() === socketData.userId) {
             player = 2;
             playerDetermined = true;
-            console.log('Matched by authenticated userId as player2');
           }
         }
         
@@ -139,17 +141,9 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
           if (game.player1GuestId && game.player1GuestId === socketData.playerId) {
             player = 1;
             playerDetermined = true;
-            console.log('Matched by playerId as player1 (guest):', socketData.playerId);
           } else if (game.player2GuestId && game.player2GuestId === socketData.playerId) {
             player = 2;
             playerDetermined = true;
-            console.log('Matched by playerId as player2 (guest):', socketData.playerId);
-          } else {
-            console.log('playerId did not match:', {
-              socketPlayerId: socketData.playerId,
-              gamePlayer1GuestId: game.player1GuestId,
-              gamePlayer2GuestId: game.player2GuestId,
-            });
           }
         }
         
@@ -158,37 +152,23 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
           if (game.player1GuestId && game.player1GuestId === socketData.userId.toString()) {
             player = 1;
             playerDetermined = true;
-            console.log('Matched by userId as guest player1');
           } else if (game.player2GuestId && game.player2GuestId === socketData.userId.toString()) {
             player = 2;
             playerDetermined = true;
-            console.log('Matched by userId as guest player2');
           }
         }
         
         if (!playerDetermined) {
-          console.error('Could not determine player - socketData:', JSON.stringify(socketData, null, 2), 'game:', {
-            player1: game.player1?.toString(),
-            player1GuestId: game.player1GuestId,
-            player2: game.player2?.toString(),
-            player2GuestId: game.player2GuestId,
-          });
+          console.error('[socketService] Could not determine player');
           socket.emit('game-error', { message: 'Could not determine player number. Please rejoin the room.' });
           return;
         }
-        
-        console.log('Player determined successfully:', player);
-
-        console.log('Attempting move:', { row, col, player, currentPlayer: game.currentPlayer, gameStatus: game.gameStatus });
 
         const result = await makeMove(game, row, col, player);
         if (!result.success) {
-          console.log('Move failed:', result.message);
           socket.emit('move-validated', { valid: false, message: result.message });
           return;
         }
-
-        console.log('Move successful, reloading game to get latest state');
 
         // Reload game to get the latest state after makeMove
         const updatedGame = await Game.findOne({ roomId });
@@ -204,12 +184,6 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
           col,
           player,
         }).sort({ timestamp: -1 });
-
-        console.log('Emitting move-made to room:', {
-          move: move ? { row: move.row, col: move.col, player: move.player } : null,
-          currentPlayer: updatedGame.currentPlayer,
-          gameStatus: updatedGame.gameStatus,
-        });
 
         // Emit to all in room
         io.to(roomId).emit('move-made', {
@@ -228,12 +202,28 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
         });
 
         if (updatedGame.gameStatus === 'finished') {
-          console.log('Game finished, emitting game-finished event');
-          io.to(roomId).emit('game-finished', {
-            winner: updatedGame.winner,
-            reason: updatedGame.winner === 'draw' ? 'Draw' : `Player ${updatedGame.winner} wins!`,
-          });
-          io.to(roomId).emit('score-updated', { score: updatedGame.score });
+          // Reload game from database to ensure we have the full document with winningLine
+          const finishedGame = await Game.findOne({ roomId });
+          if (finishedGame) {
+            // Save history immediately when game finishes
+            await saveGameHistoryIfFinished(finishedGame);
+            
+            // Emit game-finished with all necessary data including winningLine and score
+            io.to(roomId).emit('game-finished', {
+              winner: finishedGame.winner,
+              reason: finishedGame.winner === 'draw' ? 'Draw' : `Player ${finishedGame.winner} wins!`,
+              winningLine: (finishedGame as any).winningLine || undefined,
+              score: finishedGame.score,
+            });
+          } else {
+            // Fallback if game not found - use updatedGame data
+            io.to(roomId).emit('game-finished', {
+              winner: updatedGame.winner,
+              reason: updatedGame.winner === 'draw' ? 'Draw' : `Player ${updatedGame.winner} wins!`,
+              winningLine: (updatedGame as any).winningLine || undefined,
+              score: updatedGame.score,
+            });
+          }
         }
       } catch (error: any) {
         socket.emit('game-error', { message: error.message });
@@ -312,7 +302,10 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
 
         // Only allow starting if game is waiting and has 2 players
         if (game.gameStatus !== 'waiting') {
-          socket.emit('game-error', { message: 'Game is not in waiting status' });
+          // Game might have been started by another player - emit current state instead of error
+          socket.emit('game-started', {
+            currentPlayer: game.currentPlayer,
+          });
           return;
         }
 
@@ -357,8 +350,8 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
         game.currentPlayer = startingPlayer;
         await game.save();
 
-        // Emit to lobby about game status change
-        io.emit('game-status-updated', {
+        // Emit to lobby about game status change (throttled to prevent spam)
+        throttledBroadcast(io, 'game-status-updated', {
           roomId: game.roomId,
           roomCode: game.roomCode,
           gameStatus: 'playing',
@@ -367,7 +360,13 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
           isFull: true,
         });
 
+        // Emit to all players in the room
         io.to(roomId).emit('game-started', {
+          currentPlayer: game.currentPlayer,
+        });
+
+        // Also emit directly to the socket that sent the request (in case they're not in room yet)
+        socket.emit('game-started', {
           currentPlayer: game.currentPlayer,
         });
       } catch (error: any) {
@@ -413,11 +412,15 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
 
         await game.save();
 
+        // Save history immediately when game finishes
+        await saveGameHistoryIfFinished(game);
+
         io.to(roomId).emit('game-finished', {
           winner,
           reason: 'Opponent surrendered',
+          winningLine: (game as any).winningLine,
+          score: game.score,
         });
-        io.to(roomId).emit('score-updated', { score: game.score });
       } catch (error: any) {
         socket.emit('game-error', { message: error.message });
       }
@@ -464,149 +467,166 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
       socketData.currentRoomId = undefined;
     });
 
-    // Disconnect
-    // When socket disconnects (browser closed, network issue, etc.)
-    // We need to handle player leave through API if they were in a game
+    // Disconnect - Optimized to reduce DB queries (fixes Issue #4: N+1 Database Queries)
+    // Reduced from 5-7 sequential queries to 1-2 queries using lean() and upsert
     socket.on('disconnect', async () => {
-      if (socketData.currentRoomId) {
-        const roomId = socketData.currentRoomId;
-        const playerId = socketData.userId || socketData.playerId;
-        const isGuest = socketData.isGuest || !socketData.userId;
-        
-        try {
-          // Find the game to determine which player is leaving
-          const game = await Game.findOne({ roomId });
-          if (!game) {
-            // Game doesn't exist, nothing to do
-            return;
-          }
+      if (!socketData.currentRoomId) return;
 
-          // Determine which player is leaving
-          let isPlayer1 = false;
-          let isPlayer2 = false;
-          
-          if (playerId) {
-            // Check if authenticated user is player1 or player2
-            if (socketData.userId) {
-              isPlayer1 = !!(game.player1 && game.player1.toString() === socketData.userId.toString());
-              isPlayer2 = !!(game.player2 && game.player2.toString() === socketData.userId.toString());
-            }
+      const roomId = socketData.currentRoomId;
+      const playerId = socketData.userId || socketData.playerId;
+      const isGuest = socketData.isGuest || !socketData.userId;
+
+      try {
+        // Single query with lean() for read performance
+        const game = await Game.findOne({ roomId }).lean();
+        if (!game) return;
+
+        // Determine which player is leaving
+        let isPlayer1 = false;
+        let isPlayer2 = false;
+
+        if (playerId) {
+          if (socketData.userId) {
+            isPlayer1 = !!(game.player1 && game.player1.toString() === socketData.userId.toString());
+            isPlayer2 = !!(game.player2 && game.player2.toString() === socketData.userId.toString());
+          }
+          if (isGuest && playerId) {
+            if (game.player1GuestId === playerId) isPlayer1 = true;
+            if (game.player2GuestId === playerId) isPlayer2 = true;
+          }
+        }
+
+        if (!isPlayer1 && !isPlayer2) return;
+
+        const wasFinished = game.gameStatus === 'finished';
+
+        // Capture player data BEFORE removal (for history saving)
+        const player1Before = game.player1;
+        const player2Before = game.player2;
+        const player1GuestIdBefore = game.player1GuestId;
+        const player2GuestIdBefore = game.player2GuestId;
+
+        // Compute state after removal (without modifying read-only lean object)
+        let newPlayer1 = game.player1;
+        let newPlayer1GuestId = game.player1GuestId;
+        let newPlayer2 = game.player2;
+        let newPlayer2GuestId = game.player2GuestId;
+
+        if (isPlayer1) {
+          newPlayer1 = null;
+          newPlayer1GuestId = null;
+        } else if (isPlayer2) {
+          newPlayer2 = null;
+          newPlayer2GuestId = null;
+        }
+
+        const hasPlayer1After = !!(newPlayer1 || newPlayer1GuestId);
+        const hasPlayer2After = !!(newPlayer2 || newPlayer2GuestId);
+        const hasNoPlayers = !hasPlayer1After && !hasPlayer2After;
+
+        // Ensure history is saved if game finished (history should already be saved when game finished,
+        // but we check again here as fallback)
+        if (wasFinished && game.finishedAt) {
+          const hasAuthenticatedPlayerBefore = !!(player1Before || player2Before);
+          if (hasAuthenticatedPlayerBefore) {
+            const GameHistory = (await import('../models/GameHistory')).default;
+            const existingHistory = await GameHistory.findOne({ roomId }).lean();
             
-            // Also check if playerId matches guest IDs
-            if (isGuest && playerId) {
-              if (game.player1GuestId && game.player1GuestId === playerId) {
-                isPlayer1 = true;
-              }
-              if (game.player2GuestId && game.player2GuestId === playerId) {
-                isPlayer2 = true;
-              }
-            }
-          }
-
-          // Only process if player is actually in the game
-          if (isPlayer1 || isPlayer2) {
-            // Check players BEFORE removing
-            const hasPlayer1Before = !!(game.player1 || game.player1GuestId);
-            const hasPlayer2Before = !!(game.player2 || game.player2GuestId);
-            const wasFinished = game.gameStatus === 'finished';
-
-            // Remove the player from the game
-            if (isPlayer1) {
-              game.player1 = null;
-              game.player1GuestId = null;
-            } else if (isPlayer2) {
-              game.player2 = null;
-              game.player2GuestId = null;
-            }
-
-            // Check players AFTER removing
-            const hasPlayer1After = !!(game.player1 || game.player1GuestId);
-            const hasPlayer2After = !!(game.player2 || game.player2GuestId);
-            const hasNoPlayers = !hasPlayer1After && !hasPlayer2After;
-
-            let gameReset = false;
-            let hostTransferred = false;
-
-            if (hasNoPlayers) {
-              // Case 1: Game finished + cả 2 player rời → lưu vào history và xóa game
-              if (game.gameStatus === 'finished' && game.finishedAt) {
-                const GameHistory = (await import('../models/GameHistory')).default;
-                const historyRecord = new GameHistory({
-                  originalGameId: game._id.toString(),
-                  roomId: game.roomId,
-                  roomCode: game.roomCode,
-                  gameType: game.gameType,
-                  player1: game.player1,
-                  player2: game.player2,
-                  player1GuestId: game.player1GuestId,
-                  player2GuestId: game.player2GuestId,
-                  boardSize: game.boardSize,
-                  board: game.board,
-                  winner: game.winner,
-                  score: game.score,
-                  rules: game.rules,
-                  finishedAt: game.finishedAt,
-                  createdAt: game.createdAt,
-                  savedAt: new Date(),
-                });
-                await historyRecord.save();
-                
-                // Clean up old history - simplified version for socket disconnect
-                // Full cleanup logic is in gameController.leaveGame
-                // For disconnect, we just delete the game
-                
-                await Game.deleteOne({ roomId });
-                io.to(roomId).emit('game-deleted', { roomId });
-                return;
-              } else {
-                // Case 3: Game chưa finished + cả 2 player rời → xóa game
-                await Game.deleteOne({ roomId });
-                io.to(roomId).emit('game-deleted', { roomId });
-                return;
-              }
-            } else {
-              // If player1 (host) left and player2 still exists AFTER removal, transfer host to player2
-              if (isPlayer1 && hasPlayer2After) {
-                // Transfer player2 to player1 (host transfer)
-                game.player1 = game.player2;
-                game.player1GuestId = game.player2GuestId;
-                game.player2 = null;
-                game.player2GuestId = null;
-                hostTransferred = true;
-                console.log(`[socket disconnect] Host transferred: Player2 is now Player1`);
-              }
-
-              // Reset game if needed
-              if (wasFinished || game.gameStatus === 'playing') {
-                game.gameStatus = 'waiting';
-                game.winner = null;
-                game.finishedAt = null;
-                game.board = Array(game.boardSize)
-                  .fill(null)
-                  .map(() => Array(game.boardSize).fill(0));
-                game.currentPlayer = 1;
-                gameReset = true;
-              }
-
-              await game.save();
-
-              // Emit player-left event with proper data
-              io.to(roomId).emit('player-left', {
-                playerNumber: isPlayer1 ? 1 : 2,
-                roomId,
-                hostTransferred: hostTransferred,
-                gameReset: gameReset,
+            if (!existingHistory) {
+              // History not saved yet - save it now (fallback)
+              console.log(`[socket disconnect] History not found for finished game ${roomId}, saving now as fallback`);
+              const historyRecord = new GameHistory({
+                originalGameId: game._id.toString(),
+                roomId: game.roomId,
+                roomCode: game.roomCode,
+                gameType: game.gameType,
+                player1: player1Before, // Use captured data before removal
+                player2: player2Before, // Use captured data before removal
+                player1GuestId: null, // Don't save guest IDs to database
+                player2GuestId: null,
+                boardSize: game.boardSize,
+                board: game.board,
+                winner: game.winner,
+                winningLine: (game as any).winningLine,
+                score: game.score,
+                rules: game.rules,
+                finishedAt: game.finishedAt,
+                createdAt: game.createdAt,
+                savedAt: new Date(),
               });
+              await historyRecord.save();
+              console.log(`[socket disconnect] History saved (fallback) for roomId: ${roomId}`);
             }
           }
-        } catch (error: any) {
-          console.error('[socket disconnect] Error handling player leave:', error);
-          // Still emit player-left event so frontend can reload
+        }
+
+        if (hasNoPlayers) {
+          // Both players left - delete game
+          // History should already be saved above if needed
+          await Game.deleteOne({ roomId });
+          io.to(roomId).emit('game-deleted', { roomId });
+          return;
+        }
+
+        // One player remaining - use single atomic update
+        const updateDoc: Record<string, any> = {};
+        let gameReset = false;
+        let hostTransferred = false;
+
+        if (isPlayer1 && hasPlayer2After) {
+          // Host transfer: player2 becomes player1
+          updateDoc.player1 = newPlayer2;
+          updateDoc.player1GuestId = newPlayer2GuestId;
+          updateDoc.player2 = null;
+          updateDoc.player2GuestId = null;
+          hostTransferred = true;
+        } else {
+          updateDoc.player1 = newPlayer1;
+          updateDoc.player1GuestId = newPlayer1GuestId;
+          updateDoc.player2 = newPlayer2;
+          updateDoc.player2GuestId = newPlayer2GuestId;
+        }
+
+        // Reset game if it was in progress
+        if (wasFinished || game.gameStatus === 'playing') {
+          updateDoc.gameStatus = 'waiting';
+          updateDoc.winner = null;
+          updateDoc.finishedAt = null;
+          updateDoc.board = Array(game.boardSize).fill(null).map(() => Array(game.boardSize).fill(0));
+          updateDoc.currentPlayer = 1;
+          gameReset = true;
+        }
+
+        await Game.updateOne({ roomId }, { $set: updateDoc });
+
+        // Reload game to get updated state for socket event
+        const updatedGameAfterDisconnect = await Game.findOne({ roomId }).lean();
+        if (updatedGameAfterDisconnect) {
           io.to(roomId).emit('player-left', {
-            playerId: playerId || 'guest',
+            playerNumber: isPlayer1 ? 1 : 2,
             roomId,
+            hostTransferred,
+            gameReset,
+            game: {
+              player1: updatedGameAfterDisconnect.player1,
+              player1GuestId: updatedGameAfterDisconnect.player1GuestId,
+              player2: updatedGameAfterDisconnect.player2,
+              player2GuestId: updatedGameAfterDisconnect.player2GuestId,
+              gameStatus: updatedGameAfterDisconnect.gameStatus,
+              currentPlayer: updatedGameAfterDisconnect.currentPlayer,
+            },
+          });
+        } else {
+          io.to(roomId).emit('player-left', {
+            playerNumber: isPlayer1 ? 1 : 2,
+            roomId,
+            hostTransferred,
+            gameReset,
           });
         }
+      } catch (error: any) {
+        console.error('[socket disconnect] Error:', error.message);
+        io.to(roomId).emit('player-left', { playerId: playerId || 'guest', roomId });
       }
     });
   });

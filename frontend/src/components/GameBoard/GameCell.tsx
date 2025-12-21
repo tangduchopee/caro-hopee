@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Box } from '@mui/material';
 
 interface GameCellProps {
@@ -10,6 +10,7 @@ interface GameCellProps {
   boardSize: number;
   cellSize: number;
   isLastMove?: boolean;
+  isWinningCell?: boolean;
 }
 
 const GameCell: React.FC<GameCellProps> = ({
@@ -20,6 +21,7 @@ const GameCell: React.FC<GameCellProps> = ({
   disabled,
   cellSize,
   isLastMove = false,
+  isWinningCell = false,
 }) => {
   const getCellContent = () => {
     if (value === 1) {
@@ -50,7 +52,9 @@ const GameCell: React.FC<GameCellProps> = ({
         height: `${cellSize}px`,
         minWidth: `${cellSize}px`,
         minHeight: `${cellSize}px`,
-        border: isLastMove 
+        border: isWinningCell
+          ? '3px solid #ff6b6b'
+          : isLastMove 
           ? '2px solid rgba(126, 200, 227, 0.8)'
           : '1px solid rgba(126, 200, 227, 0.3)',
         display: 'flex',
@@ -58,14 +62,18 @@ const GameCell: React.FC<GameCellProps> = ({
         justifyContent: 'center',
         cursor: disabled || value !== 0 ? 'default' : 'pointer',
         backgroundColor: value === 0 ? '#ffffff' : '#ffffff',
-        background: isLastMove && value !== 0
+        background: isWinningCell && value !== 0
+          ? `linear-gradient(135deg, ${value === 1 ? 'rgba(255, 107, 107, 0.25)' : 'rgba(255, 107, 107, 0.25)'} 0%, ${value === 1 ? 'rgba(255, 107, 107, 0.35)' : 'rgba(255, 107, 107, 0.35)'} 100%)`
+          : isLastMove && value !== 0
           ? `linear-gradient(135deg, ${value === 1 ? 'rgba(126, 200, 227, 0.15)' : 'rgba(168, 230, 207, 0.15)'} 0%, ${value === 1 ? 'rgba(126, 200, 227, 0.22)' : 'rgba(168, 230, 207, 0.22)'} 100%)`
           : value === 0 
           ? '#ffffff'
           : '#ffffff',
         transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         position: 'relative',
-        boxShadow: isLastMove 
+        boxShadow: isWinningCell
+          ? '0 0 12px rgba(255, 107, 107, 0.5), inset 0 0 6px rgba(255, 107, 107, 0.2)'
+          : isLastMove 
           ? '0 0 8px rgba(126, 200, 227, 0.35), inset 0 0 4px rgba(126, 200, 227, 0.15)'
           : 'none',
         '&:hover': {
@@ -106,5 +114,21 @@ const GameCell: React.FC<GameCellProps> = ({
   );
 };
 
-export default GameCell;
+// Custom comparison to prevent unnecessary re-renders (fixes Issue #6)
+// Only re-render when props that affect display actually change
+const MemoizedGameCell = memo(GameCell, (prevProps, nextProps) => {
+  return (
+    prevProps.value === nextProps.value &&
+    prevProps.row === nextProps.row &&
+    prevProps.col === nextProps.col &&
+    prevProps.disabled === nextProps.disabled &&
+    prevProps.cellSize === nextProps.cellSize &&
+    prevProps.isLastMove === nextProps.isLastMove &&
+    prevProps.isWinningCell === nextProps.isWinningCell
+    // onClick is stable via useCallback so we don't compare it
+  );
+});
+MemoizedGameCell.displayName = 'GameCell';
+
+export default MemoizedGameCell;
 

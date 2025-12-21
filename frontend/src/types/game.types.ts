@@ -27,6 +27,7 @@ export interface Game {
   currentPlayer: PlayerNumber;
   gameStatus: GameStatus;
   winner: Winner;
+  winningLine?: Array<{ row: number; col: number }>;
   rules: GameRules;
   score: GameScore;
   createdAt: string;
@@ -59,6 +60,7 @@ export interface GameHistory {
   boardSize: number;
   board: number[][];
   winner: Winner;
+  winningLine?: Array<{ row: number; col: number }>;
   result: 'win' | 'loss' | 'draw';
   opponentUsername: string;
   finishedAt: string | null;

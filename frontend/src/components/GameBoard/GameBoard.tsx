@@ -1,33 +1,55 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { Box, Paper } from '@mui/material';
 import GameCell from './GameCell';
 import { useGame } from '../../contexts/GameContext';
 
 const GameBoard: React.FC = () => {
-  const { game, isMyTurn, makeMove, myPlayerNumber, lastMove } = useGame();
+  const { game, isMyTurn, makeMove, lastMove } = useGame();
   const containerRef = useRef<HTMLDivElement>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState(50);
+  
+  // Memoize winning cells to avoid recalculating on every render
+  const winningCellsSet = useMemo(() => {
+    if (!game?.winningLine) return new Set<string>();
+    return new Set(
+      game.winningLine.map(line => `${line.row}-${line.col}`)
+    );
+  }, [game?.winningLine]);
 
+  const handleCellClick = useCallback((row: number, col: number): void => {
+    // Only allow clicks if it's my turn, game is playing, and cell is empty
+    if (!game) return;
+    if (isMyTurn && game.gameStatus === 'playing' && game.board[row]?.[col] === 0) {
+      makeMove(row, col);
+    }
+  }, [game, isMyTurn, makeMove]);
+
+  // Fix H2: Added isMounted check to prevent state updates after unmount
   useEffect(() => {
+    if (!game) return;
+
+    let isMounted = true;
     let timeoutId: NodeJS.Timeout | null = null;
     let rafId: number | null = null;
     let lastUpdateTime = 0;
-    const THROTTLE_MS = 100; // Throttle to max once per 100ms
+    const THROTTLE_MS = 100;
 
     const updateCellSize = (): void => {
+      if (!isMounted) return; // Prevent state update after unmount
       if (containerRef.current && game) {
         const containerWidth = containerRef.current.offsetWidth;
         const maxWidth = Math.min(containerWidth * 0.9, 800);
         const calculatedSize = Math.min(maxWidth / game.boardSize, 60);
-        const finalSize = Math.max(calculatedSize, 35); // Minimum 35px
+        const finalSize = Math.max(calculatedSize, 35);
         setCellSize(finalSize);
       }
     };
 
     const throttledUpdate = (): void => {
+      if (!isMounted) return; // Early exit if unmounted
       const now = Date.now();
-      
-      // Clear any pending updates
+
       if (timeoutId) {
         clearTimeout(timeoutId);
         timeoutId = null;
@@ -37,14 +59,13 @@ const GameBoard: React.FC = () => {
         rafId = null;
       }
 
-      // If enough time has passed, update immediately
       if (now - lastUpdateTime >= THROTTLE_MS) {
         lastUpdateTime = now;
         updateCellSize();
       } else {
-        // Otherwise, schedule update for later
         const delay = THROTTLE_MS - (now - lastUpdateTime);
         timeoutId = setTimeout(() => {
+          if (!isMounted) return;
           lastUpdateTime = Date.now();
           updateCellSize();
           timeoutId = null;
@@ -52,12 +73,11 @@ const GameBoard: React.FC = () => {
       }
     };
 
-    // Initial update
     updateCellSize();
     lastUpdateTime = Date.now();
 
-    // Use requestAnimationFrame for smoother updates during zoom
     const handleResize = (): void => {
+      if (!isMounted) return;
       if (rafId) {
         cancelAnimationFrame(rafId);
       }
@@ -65,39 +85,19 @@ const GameBoard: React.FC = () => {
     };
 
     window.addEventListener('resize', handleResize, { passive: true });
-    
+
     return () => {
+      isMounted = false;
       window.removeEventListener('resize', handleResize);
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-      if (rafId) {
-        cancelAnimationFrame(rafId);
-      }
+      if (timeoutId) clearTimeout(timeoutId);
+      if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [game]); // Add game as dependency since it's used in updateCellSize
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game?.boardSize]);
 
   if (!game) {
     return <div>No game loaded</div>;
   }
-
-  const handleCellClick = (row: number, col: number): void => {
-    // Only allow clicks if it's my turn, game is playing, and cell is empty
-    if (isMyTurn && game.gameStatus === 'playing' && game.board[row][col] === 0) {
-      console.log('Making move at:', { row, col }, 'myPlayerNumber:', myPlayerNumber, 'currentPlayer:', game.currentPlayer);
-      makeMove(row, col);
-    } else {
-      // Debug log to help diagnose click issues
-      console.log('Click blocked:', {
-        isMyTurn,
-        gameStatus: game.gameStatus,
-        cellValue: game.board[row][col],
-        currentPlayer: game.currentPlayer,
-        myPlayerNumber,
-        reason: !isMyTurn ? 'Not my turn' : game.gameStatus !== 'playing' ? `Game status is ${game.gameStatus}` : 'Cell not empty',
-      });
-    }
-  };
 
   return (
     <Box
@@ -126,6 +126,7 @@ const GameBoard: React.FC = () => {
       >
         <Box
           sx={{
+            position: 'relative',
             display: 'grid',
             gridTemplateColumns: `repeat(${game.boardSize}, 1fr)`,
             gap: 0,
@@ -134,21 +135,53 @@ const GameBoard: React.FC = () => {
             overflow: 'hidden',
             boxShadow: 'inset 0 2px 8px rgba(126, 200, 227, 0.1)',
           }}
+          ref={boardRef}
         >
           {game.board.map((row, rowIndex) =>
-            row.map((cell, colIndex) => (
-              <GameCell
-                key={`${rowIndex}-${colIndex}`}
-                value={cell}
-                row={rowIndex}
-                col={colIndex}
-                onClick={handleCellClick}
-                disabled={!isMyTurn || game.gameStatus !== 'playing'}
-                boardSize={game.boardSize}
-                cellSize={cellSize}
-                isLastMove={lastMove !== null && lastMove.row === rowIndex && lastMove.col === colIndex}
+            row.map((cell, colIndex) => {
+              const cellKey = `${rowIndex}-${colIndex}`;
+              const isWinningCell = winningCellsSet.has(cellKey);
+              const isLastMoveCell = lastMove !== null && lastMove.row === rowIndex && lastMove.col === colIndex;
+              return (
+                <GameCell
+                  key={cellKey}
+                  value={cell}
+                  row={rowIndex}
+                  col={colIndex}
+                  onClick={handleCellClick}
+                  disabled={!isMyTurn || game.gameStatus !== 'playing'}
+                  boardSize={game.boardSize}
+                  cellSize={cellSize}
+                  isLastMove={isLastMoveCell}
+                  isWinningCell={isWinningCell}
+                />
+              );
+            })
+          )}
+          {/* Winning line overlay */}
+          {game.winningLine && game.winningLine.length >= 2 && (
+            <svg
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none',
+                zIndex: 10,
+              }}
+            >
+              <line
+                x1={(game.winningLine[0].col + 0.5) * cellSize}
+                y1={(game.winningLine[0].row + 0.5) * cellSize}
+                x2={(game.winningLine[game.winningLine.length - 1].col + 0.5) * cellSize}
+                y2={(game.winningLine[game.winningLine.length - 1].row + 0.5) * cellSize}
+                stroke="#ff6b6b"
+                strokeWidth={4}
+                strokeLinecap="round"
+                opacity={0.8}
               />
-            ))
+            </svg>
           )}
         </Box>
       </Paper>

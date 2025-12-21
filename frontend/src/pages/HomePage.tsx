@@ -1,16 +1,16 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { 
-  Box, 
-  Container, 
-  Typography, 
-  Button, 
-  Paper, 
-  Select, 
-  MenuItem, 
-  FormControl, 
-  InputLabel, 
-  TextField, 
-  CircularProgress, 
+import React, { useState, useEffect, useRef, useCallback, startTransition } from 'react';
+import {
+  Box,
+  Container,
+  Typography,
+  Button,
+  Paper,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  TextField,
+  CircularProgress,
   Chip,
   Drawer,
   List,
@@ -22,7 +22,7 @@ import {
   useTheme,
   useMediaQuery,
   IconButton,
-  Fade,
+  Skeleton,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import PersonIcon from '@mui/icons-material/Person';
@@ -30,12 +30,14 @@ import LeaderboardIcon from '@mui/icons-material/Leaderboard';
 import LoginIcon from '@mui/icons-material/Login';
 import HistoryIcon from '@mui/icons-material/History';
 import { useNavigate, Link } from 'react-router-dom';
+import GameCard from '../components/GameCard/GameCard';
 import { gameApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { BOARD_SIZES, DEFAULT_BOARD_SIZE } from '../utils/constants';
 import { validateRoomCode, formatRoomCode } from '../utils/roomCode';
 import HistoryModal from '../components/HistoryModal/HistoryModal';
 import { socketService } from '../services/socketService';
+import { logger } from '../utils/logger';
 
 interface WaitingGame {
   _id: string;
@@ -91,9 +93,21 @@ const HomePage: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
 
-  // Track mounted games to only animate new ones
+  // Track mounted games to only animate new ones (fixes Issue #5: Unbounded Set Growth)
+  // Using WeakRef-like pattern with manual cleanup when games are removed
   const mountedGamesRef = useRef<Set<string>>(new Set());
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup stale entries from mountedGamesRef when games list changes
+  useEffect(() => {
+    const currentGameIds = new Set(waitingGames.map(g => g.roomId));
+    // Remove any tracked games that no longer exist
+    mountedGamesRef.current.forEach(roomId => {
+      if (!currentGameIds.has(roomId)) {
+        mountedGamesRef.current.delete(roomId);
+      }
+    });
+  }, [waitingGames]);
 
   // Smart merge function - chỉ update phần thay đổi, không replace toàn bộ array
   const smartMergeGames = useCallback((newGames: WaitingGame[], currentGames: WaitingGame[]): WaitingGame[] => {
@@ -151,7 +165,7 @@ const HomePage: React.FC = () => {
 
   const handleCreateGame = async (): Promise<void> => {
     try {
-      console.log('[HomePage] Creating game with:', { boardSize, blockTwoEnds });
+      logger.log('[HomePage] Creating game with:', { boardSize, blockTwoEnds });
       const game = await gameApi.create(boardSize, {
         blockTwoEnds,
         allowUndo: true,
@@ -159,11 +173,11 @@ const HomePage: React.FC = () => {
         timeLimit: null,
       });
 
-      console.log('[HomePage] Game created successfully:', game.roomId);
+      logger.log('[HomePage] Game created successfully:', game.roomId);
       navigate(`/game/${game.roomId}`);
     } catch (error: any) {
-      console.error('[HomePage] Failed to create game:', error);
-      console.error('[HomePage] Error details:', {
+      logger.error('[HomePage] Failed to create game:', error);
+      logger.error('[HomePage] Error details:', {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status,
@@ -210,23 +224,25 @@ const HomePage: React.FC = () => {
     setJoinError('');
   };
 
-  const loadWaitingGames = async (silent: boolean = false): Promise<void> => {
+  const loadWaitingGames = useCallback(async (silent: boolean = false): Promise<void> => {
     try {
       if (!silent) {
         setLoadingGames(true);
       }
       const games = await gameApi.getWaitingGames();
-      
-      // Use smart merge instead of direct set
-      setWaitingGames(prev => smartMergeGames(games, prev));
+
+      // Use startTransition for non-urgent UI updates (improves INP)
+      startTransition(() => {
+        setWaitingGames(prev => smartMergeGames(games, prev));
+      });
     } catch (error) {
-      console.error('Failed to load waiting games:', error);
+      logger.error('Failed to load waiting games:', error);
     } finally {
       if (!silent) {
         setLoadingGames(false);
       }
     }
-  };
+  }, [smartMergeGames]);
 
   useEffect(() => {
     // Initial load
@@ -237,19 +253,22 @@ const HomePage: React.FC = () => {
     
     // Socket.IO listeners for real-time updates
     const socket = socketService.getSocket();
+    // Capture ref value at effect start to avoid stale closure
+    const currentTimeoutRef = updateTimeoutRef.current;
+    
     if (socket) {
       const handleGameCreated = () => {
-        console.log('[HomePage] Game created event received');
+        logger.log('[HomePage] Game created event received');
         loadWaitingGames(true); // Silent update - không hiển thị loading
       };
       
       const handleGameStatusUpdated = () => {
-        console.log('[HomePage] Game status updated event received');
+        logger.log('[HomePage] Game status updated event received');
         loadWaitingGames(true); // Silent update
       };
       
       const handleGameDeleted = (data: { roomId: string }) => {
-        console.log('[HomePage] Game deleted event received:', data.roomId);
+        logger.log('[HomePage] Game deleted event received:', data.roomId);
         // Remove game from list immediately without API call
         setWaitingGames(prev => {
           const filtered = prev.filter(game => game.roomId !== data.roomId);
@@ -265,24 +284,24 @@ const HomePage: React.FC = () => {
       
       return () => {
         clearInterval(interval);
+        if (currentTimeoutRef) {
+          clearTimeout(currentTimeoutRef);
+        }
         if (socket) {
           socket.off('game-created', handleGameCreated);
           socket.off('game-status-updated', handleGameStatusUpdated);
           socket.off('game-deleted', handleGameDeleted);
-        }
-        if (updateTimeoutRef.current) {
-          clearTimeout(updateTimeoutRef.current);
         }
       };
     }
     
     return () => {
       clearInterval(interval);
-      if (updateTimeoutRef.current) {
-        clearTimeout(updateTimeoutRef.current);
+      if (currentTimeoutRef) {
+        clearTimeout(currentTimeoutRef);
       }
     };
-  }, [smartMergeGames]);
+  }, [loadWaitingGames]);
 
   const handleQuickJoin = async (game: WaitingGame): Promise<void> => {
     setJoiningGameId(game.roomId);
@@ -290,7 +309,7 @@ const HomePage: React.FC = () => {
       await gameApi.joinGame(game.roomId);
       navigate(`/game/${game.roomId}`);
     } catch (error: any) {
-      console.error('Failed to join game:', error);
+      logger.error('Failed to join game:', error);
       alert(error.response?.data?.message || 'Failed to join game');
       loadWaitingGames();
     } finally {
@@ -624,28 +643,28 @@ const HomePage: React.FC = () => {
               >
                 History
               </Button>
-              <Button
-                component={Link}
-                to="/login"
-                fullWidth
-                startIcon={<LoginIcon />}
-                sx={{
-                  py: 1.75,
-                  borderRadius: 2.5,
-                  textTransform: 'none',
-                  fontWeight: 700,
-                  fontSize: '0.95rem',
-                  background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
-                  color: '#ffffff',
-                  boxShadow: '0 4px 12px rgba(126, 200, 227, 0.3)',
-                  '&:hover': {
-                    background: 'linear-gradient(135deg, #5ba8c7 0%, #88d6b7 100%)',
-                    boxShadow: '0 6px 16px rgba(126, 200, 227, 0.4)',
-                  },
-                }}
-              >
-                Login / Register
-              </Button>
+            <Button
+              component={Link}
+              to="/login"
+              fullWidth
+              startIcon={<LoginIcon />}
+              sx={{
+                py: 1.75,
+                borderRadius: 2.5,
+                textTransform: 'none',
+                fontWeight: 700,
+                fontSize: '0.95rem',
+                background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
+                color: '#ffffff',
+                boxShadow: '0 4px 12px rgba(126, 200, 227, 0.3)',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, #5ba8c7 0%, #88d6b7 100%)',
+                  boxShadow: '0 6px 16px rgba(126, 200, 227, 0.4)',
+                },
+              }}
+            >
+              Login / Register
+            </Button>
             </>
           )}
         </Box>
@@ -663,40 +682,47 @@ const HomePage: React.FC = () => {
           ml: { md: 0 }, // Ensure no margin overlap
         }}
       >
-        {/* Mobile Menu Button */}
-        {isMobile && (
-          <Box
+        {/* Mobile Menu Button - Always render, visibility controlled by CSS to prevent CLS */}
+        <Box
+          sx={{
+            position: 'fixed',
+            top: 16,
+            left: 16,
+            zIndex: (theme) => theme.zIndex.drawer + 1,
+            // Hide on desktop, show on mobile - CSS-based visibility prevents CLS
+            display: { xs: 'block', md: 'none' },
+            // Containment to isolate from layout calculations
+            contain: 'layout style',
+          }}
+        >
+          <IconButton
+            onClick={() => setSidebarOpen(true)}
             sx={{
-              position: 'fixed',
-              top: 16,
-              left: 16,
-              zIndex: (theme) => theme.zIndex.drawer + 1,
+              width: 48,
+              height: 48,
+              background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
+              color: '#ffffff',
+              boxShadow: '0 4px 12px rgba(126, 200, 227, 0.3)',
+              '&:hover': {
+                background: 'linear-gradient(135deg, #5ba8c7 0%, #88d6b7 100%)',
+                boxShadow: '0 6px 16px rgba(126, 200, 227, 0.4)',
+              },
             }}
           >
-            <IconButton
-              onClick={() => setSidebarOpen(true)}
-              sx={{
-                width: 48,
-                height: 48,
-                background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
-                color: '#ffffff',
-                boxShadow: '0 4px 12px rgba(126, 200, 227, 0.3)',
-                '&:hover': {
-                  background: 'linear-gradient(135deg, #5ba8c7 0%, #88d6b7 100%)',
-                  boxShadow: '0 6px 16px rgba(126, 200, 227, 0.4)',
-                },
-              }}
-            >
-              <MenuIcon />
-            </IconButton>
-          </Box>
-        )}
+            <MenuIcon />
+          </IconButton>
+        </Box>
 
-        {/* Page Content */}
-        <Box sx={{ flex: 1, background: 'linear-gradient(180deg, #f8fbff 0%, #ffffff 50%, #f0f9ff 100%)' }}>
+        {/* Page Content - Use solid color background for better paint performance */}
+        <Box
+          sx={{
+            flex: 1,
+            // Solid color instead of gradient for better paint performance
+            bgcolor: '#f8fbff',
+          }}
+        >
           <Container maxWidth="xl" sx={{ py: { xs: 4, md: 5 }, px: { xs: 2, md: 3 } }}>
-            {/* Hero Section */}
-            <Fade in timeout={600}>
+            {/* Hero Section - Removed Fade for better INP */}
               <Box sx={{ textAlign: 'center', mb: { xs: 5, md: 6 } }}>
                 <Box
                   sx={{
@@ -743,7 +769,6 @@ const HomePage: React.FC = () => {
                   Challenge your friends to an exciting game of strategy and skill
                 </Typography>
               </Box>
-            </Fade>
 
             {/* Action Cards */}
             <Box sx={{ 
@@ -754,22 +779,19 @@ const HomePage: React.FC = () => {
               maxWidth: '1200px',
               mx: 'auto',
             }}>
-              {/* Create Game Card */}
-              <Fade in timeout={800}>
-                <Paper 
+              {/* Create Game Card - Optimized: removed Fade, backdropFilter, willChange */}
+                <Paper
                   elevation={0}
-                  sx={{ 
+                  sx={{
                     p: { xs: 3.5, md: 4.5 },
-                    background: 'rgba(255, 255, 255, 0.8)',
-                    backdropFilter: 'blur(8px)',
-                    WebkitBackdropFilter: 'blur(8px)',
-                    willChange: 'transform',
+                    background: '#ffffff',
                     border: '1px solid rgba(126, 200, 227, 0.2)',
                     borderRadius: 4,
                     position: 'relative',
                     overflow: 'hidden',
                     boxShadow: '0 8px 32px rgba(126, 200, 227, 0.12)',
-                    transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                    // Specific transition instead of 'all'
+                    transition: 'box-shadow 0.3s ease',
                     '&:hover': {
                       boxShadow: '0 16px 48px rgba(126, 200, 227, 0.2)',
                     },
@@ -840,51 +862,32 @@ const HomePage: React.FC = () => {
                   </FormControl>
 
                   <Box sx={{ mb: 3 }}>
+                    {/* Fixed button that doesn't change variant to prevent CLS */}
                     <Button
-                      variant={blockTwoEnds ? 'contained' : 'outlined'}
+                      variant="contained"
                       onClick={() => setBlockTwoEnds(!blockTwoEnds)}
                       fullWidth
-                      sx={{ 
+                      sx={{
                         py: 1.5,
                         borderRadius: 2.5,
                         textTransform: 'none',
                         fontWeight: 600,
                         fontSize: '0.95rem',
-                        // Ensure consistent spacing to prevent layout shift
-                        boxSizing: 'border-box',
-                        minHeight: '48px', // Fixed height to prevent layout shift
-                        // For contained variant, no border at all
-                        ...(blockTwoEnds && {
-                          border: 'none',
-                          borderWidth: 0,
-                          '&:hover': {
-                            border: 'none',
-                            borderWidth: 0,
-                          },
-                          '&:focus': {
-                            border: 'none',
-                            borderWidth: 0,
-                          },
-                          '&:focus-visible': {
-                            outline: '2px solid rgba(126, 200, 227, 0.5)',
-                            outlineOffset: '2px',
-                          },
-                        }),
-                        // For outlined variant, border is visible
-                        ...(!blockTwoEnds && {
-                          borderWidth: 2,
-                          borderColor: '#7ec8e3',
-                          borderStyle: 'solid',
-                          '&:hover': {
-                            borderColor: '#5ba8c7',
-                            borderWidth: 2,
-                            borderStyle: 'solid',
-                          },
-                          '&:focus': {
-                            borderWidth: 2,
-                            borderStyle: 'solid',
-                          },
-                        }),
+                        minHeight: 48,
+                        // Use background color change instead of variant change
+                        background: blockTwoEnds
+                          ? 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)'
+                          : 'transparent',
+                        color: blockTwoEnds ? '#ffffff' : '#7ec8e3',
+                        border: '2px solid #7ec8e3',
+                        boxShadow: blockTwoEnds ? '0 4px 12px rgba(126, 200, 227, 0.3)' : 'none',
+                        transition: 'background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease',
+                        '&:hover': {
+                          background: blockTwoEnds
+                            ? 'linear-gradient(135deg, #5ba8c7 0%, #88d6b7 100%)'
+                            : 'rgba(126, 200, 227, 0.1)',
+                          borderColor: '#5ba8c7',
+                        },
                       }}
                     >
                       Block Two Ends: {blockTwoEnds ? 'ON' : 'OFF'}
@@ -913,24 +916,19 @@ const HomePage: React.FC = () => {
                     🚀 Create Game
                   </Button>
                 </Paper>
-              </Fade>
 
-              {/* Join Game Card */}
-              <Fade in timeout={1000}>
-                <Paper 
+              {/* Join Game Card - Optimized: removed Fade, backdropFilter, willChange */}
+                <Paper
                   elevation={0}
-                  sx={{ 
+                  sx={{
                     p: { xs: 3.5, md: 4.5 },
-                    background: 'rgba(255, 255, 255, 0.8)',
-                    backdropFilter: 'blur(8px)',
-                    WebkitBackdropFilter: 'blur(8px)',
-                    willChange: 'transform',
+                    background: '#ffffff',
                     border: '1px solid rgba(168, 230, 207, 0.2)',
                     borderRadius: 4,
                     position: 'relative',
                     overflow: 'hidden',
                     boxShadow: '0 8px 32px rgba(168, 230, 207, 0.12)',
-                    transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                    transition: 'box-shadow 0.3s ease',
                     '&:hover': {
                       boxShadow: '0 16px 48px rgba(168, 230, 207, 0.2)',
                     },
@@ -1096,12 +1094,19 @@ const HomePage: React.FC = () => {
                     Or use join page
                   </Button>
                 </Paper>
-              </Fade>
             </Box>
 
-            {/* Waiting Games Section */}
-            <Box sx={{ maxWidth: '1200px', mx: 'auto' }}>
-              <Fade in timeout={1200}>
+            {/* Waiting Games Section - Optimized with CSS containment for better paint performance */}
+            <Box
+              sx={{
+                maxWidth: '1200px',
+                mx: 'auto',
+                // CSS containment isolates this section from parent repaints
+                contain: 'layout style paint',
+                // Force compositor layer for smoother updates
+                transform: 'translateZ(0)',
+              }}
+            >
                 <Box sx={{ mb: 4, textAlign: 'center' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1.5, mb: 1 }}>
                     <Typography
@@ -1113,8 +1118,8 @@ const HomePage: React.FC = () => {
                     >
                       🎮
                     </Typography>
-                    <Typography 
-                      variant="h4" 
+                    <Typography
+                      variant="h4"
                       sx={{
                         background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
                         WebkitBackgroundClip: 'text',
@@ -1132,178 +1137,99 @@ const HomePage: React.FC = () => {
                     Join a game that's waiting for players
                   </Typography>
                 </Box>
-              </Fade>
 
-              {loadingGames ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-                  <CircularProgress sx={{ color: '#7ec8e3' }} />
-                </Box>
-              ) : waitingGames.length === 0 ? (
-                <Fade in timeout={1400}>
-                  <Paper
-                    elevation={0}
+              {/* Games container - optimized for paint performance */}
+              <Box
+                sx={{
+                  // Fixed height matching 1 row of cards to prevent CLS
+                  minHeight: 200,
+                  // Isolate this container from parent paint operations
+                  contain: 'layout paint',
+                }}
+              >
+                {loadingGames ? (
+                  /* Skeleton loaders - same dimensions as real cards to prevent CLS */
+                  <Box
                     sx={{
-                      p: 5,
-                      textAlign: 'center',
-                      bgcolor: 'rgba(255, 255, 255, 0.6)',
-                      backdropFilter: 'blur(8px)',
-                    WebkitBackdropFilter: 'blur(8px)',
-                    willChange: 'transform',
-                      border: '1px solid rgba(126, 200, 227, 0.2)',
-                      borderRadius: 4,
-                      boxShadow: '0 8px 32px rgba(126, 200, 227, 0.1)',
+                      display: 'grid',
+                      gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)', lg: 'repeat(4, 1fr)' },
+                      gap: 2.5,
                     }}
                   >
-                    <Typography variant="body1" sx={{ color: '#5a6a7a', fontSize: '1rem' }}>
-                      No games waiting for players at the moment. Create a new game to get started!
-                    </Typography>
-                  </Paper>
-                </Fade>
-              ) : (
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)', lg: 'repeat(4, 1fr)' },
-                    gap: 2.5,
-                  }}
-                >
-                  {waitingGames.map((game, index) => {
-                    // Chỉ animate khi game mới được mount lần đầu
-                    const isNewGame = !mountedGamesRef.current.has(game.roomId);
-                    return (
-                    <Fade in timeout={isNewGame ? 400 : 0} key={game.roomId}>
+                    {[1, 2, 3, 4].map((i) => (
                       <Paper
+                        key={i}
                         elevation={0}
                         sx={{
                           p: 3,
-                          bgcolor: 'rgba(255, 255, 255, 0.8)',
-                          backdropFilter: 'blur(8px)',
-                          WebkitBackdropFilter: 'blur(8px)',
-                          willChange: 'transform',
+                          bgcolor: '#ffffff',
                           border: '1px solid rgba(126, 200, 227, 0.2)',
                           borderRadius: 3,
                           boxShadow: '0 4px 16px rgba(126, 200, 227, 0.1)',
-                          transition: 'all 0.3s ease',
-                          cursor: game.canJoin === false ? 'not-allowed' : 'pointer',
-                          opacity: game.canJoin === false ? 0.7 : 1,
-                          '&:hover': game.canJoin === false ? {} : {
-                            boxShadow: '0 8px 24px rgba(126, 200, 227, 0.2)',
-                            transform: 'translateY(-4px)',
-                            borderColor: 'rgba(126, 200, 227, 0.4)',
-                          },
-                        }}
-                        onClick={() => {
-                          if (game.canJoin !== false) {
-                            handleQuickJoin(game);
-                          }
                         }}
                       >
-                        <Box sx={{ mb: 2.5 }}>
-                          <Typography
-                            variant="h5"
-                            sx={{
-                              fontFamily: 'monospace',
-                              fontWeight: 800,
-                              letterSpacing: 2,
-                              background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
-                              WebkitBackgroundClip: 'text',
-                              WebkitTextFillColor: 'transparent',
-                              backgroundClip: 'text',
-                              fontSize: '1.75rem',
-                              mb: 1.5,
-                            }}
-                          >
-                            {game.roomCode}
-                          </Typography>
-                          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
-                            <Chip
-                              label={`${game.boardSize}x${game.boardSize}`}
-                              size="small"
-                              sx={{
-                                bgcolor: 'rgba(126, 200, 227, 0.15)',
-                                color: '#7ec8e3',
-                                fontWeight: 600,
-                                fontSize: '0.75rem',
-                                height: 24,
-                              }}
-                            />
-                            <Chip
-                              label={game.statusLabel || (game.hasPlayer1 && !game.hasPlayer2 ? '1/2 Players' : 'Waiting')}
-                              size="small"
-                              sx={{
-                                bgcolor: 
-                                  game.displayStatus === 'playing' 
-                                    ? 'rgba(255, 152, 0, 0.2)' // Orange for playing
-                                    : game.displayStatus === 'ready'
-                                    ? 'rgba(76, 175, 80, 0.2)' // Green for ready
-                                    : 'rgba(33, 150, 243, 0.2)', // Blue for waiting
-                                color: 
-                                  game.displayStatus === 'playing'
-                                    ? '#ff9800' // Orange
-                                    : game.displayStatus === 'ready'
-                                    ? '#4caf50' // Green
-                                    : '#2196f3', // Blue
-                                fontWeight: 700,
-                                fontSize: '0.75rem',
-                                height: 24,
-                                border: 
-                                  game.displayStatus === 'playing'
-                                    ? '1px solid rgba(255, 152, 0, 0.3)'
-                                    : game.displayStatus === 'ready'
-                                    ? '1px solid rgba(76, 175, 80, 0.3)'
-                                    : '1px solid rgba(33, 150, 243, 0.3)',
-                              }}
-                            />
-                          </Box>
-                          {game.player1Username && (
-                            <Typography variant="caption" sx={{ color: '#5a6a7a', fontSize: '0.8rem' }}>
-                              Host: {game.player1Username}
-                            </Typography>
-                          )}
+                        <Skeleton variant="text" width="60%" height={40} sx={{ mb: 1.5 }} />
+                        <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
+                          <Skeleton variant="rounded" width={60} height={24} />
+                          <Skeleton variant="rounded" width={80} height={24} />
                         </Box>
-                        <Button
-                          variant="contained"
-                          fullWidth
-                          disabled={joiningGameId === game.roomId || game.canJoin === false}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleQuickJoin(game);
-                          }}
-                          sx={{
-                            py: 1.25,
-                            borderRadius: 2.5,
-                            textTransform: 'none',
-                            fontWeight: 600,
-                            fontSize: '0.9rem',
-                            background: game.canJoin === false 
-                              ? 'linear-gradient(135deg, #9e9e9e 0%, #757575 100%)'
-                              : 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
-                            boxShadow: game.canJoin === false
-                              ? 'none'
-                              : '0 4px 12px rgba(126, 200, 227, 0.3)',
-                            '&:hover': game.canJoin === false ? {} : {
-                              background: 'linear-gradient(135deg, #5ba8c7 0%, #88d6b7 100%)',
-                              boxShadow: '0 6px 16px rgba(126, 200, 227, 0.4)',
-                            },
-                          }}
-                        >
-                          {joiningGameId === game.roomId ? (
-                            <>
-                              <CircularProgress size={16} sx={{ mr: 1, color: '#ffffff' }} />
-                              Joining...
-                            </>
-                          ) : game.canJoin === false ? (
-                            game.displayStatus === 'playing' ? 'Playing...' : 'Full (2/2)'
-                          ) : (
-                            'Join Game'
-                          )}
-                        </Button>
+                        <Skeleton variant="text" width="40%" height={20} sx={{ mb: 2.5 }} />
+                        <Skeleton variant="rounded" width="100%" height={42} />
                       </Paper>
-                    </Fade>
-                    );
-                  })}
-                </Box>
-              )}
+                    ))}
+                  </Box>
+                ) : waitingGames.length === 0 ? (
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)', lg: 'repeat(4, 1fr)' },
+                      gap: 2.5,
+                    }}
+                  >
+                    {/* Empty state card matches skeleton card dimensions */}
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        p: 3,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        bgcolor: '#ffffff',
+                        border: '1px solid rgba(126, 200, 227, 0.2)',
+                        borderRadius: 3,
+                        boxShadow: '0 4px 16px rgba(126, 200, 227, 0.1)',
+                        gridColumn: { xs: '1', sm: '1 / -1' },
+                        minHeight: 158, // Match skeleton card height
+                      }}
+                    >
+                      <Typography variant="body1" sx={{ color: '#5a6a7a', fontSize: '1rem', textAlign: 'center' }}>
+                        No games waiting for players. Create a new game to get started!
+                      </Typography>
+                    </Paper>
+                  </Box>
+                ) : (
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)', lg: 'repeat(4, 1fr)' },
+                      gap: 2.5,
+                    }}
+                  >
+                    {waitingGames.map((game) => {
+                      const isNewGame = !mountedGamesRef.current.has(game.roomId);
+                      return (
+                        <GameCard
+                          key={game.roomId}
+                          game={game}
+                          isNewGame={isNewGame}
+                          joiningGameId={joiningGameId}
+                          onJoin={handleQuickJoin}
+                        />
+                      );
+                    })}
+                  </Box>
+                )}
+              </Box>
             </Box>
           </Container>
         </Box>

@@ -3,6 +3,7 @@ import { Container, Box, Typography, Paper, Tabs, Tab, CircularProgress } from '
 import { useAuth } from '../contexts/AuthContext';
 import { userApi } from '../services/api';
 import { User } from '../types/user.types';
+import { logger } from '../utils/logger';
 
 interface GameStats {
   _id: string;
@@ -46,7 +47,7 @@ const ProfilePage: React.FC = () => {
       const userData = await userApi.getMyProfile();
       setProfile(userData);
     } catch (error) {
-      console.error('Failed to load profile:', error);
+      logger.error('Failed to load profile:', error);
     } finally {
       setLoading(false);
     }
@@ -59,7 +60,7 @@ const ProfilePage: React.FC = () => {
       const data = await userApi.getUserGames(user._id);
       setGameStats(data);
     } catch (error) {
-      console.error('Failed to load game stats:', error);
+      logger.error('Failed to load game stats:', error);
     } finally {
       setStatsLoading(false);
     }

@@ -3,11 +3,16 @@ import GameMove from '../models/GameMove';
 import { checkWin } from './winChecker';
 import { validateMove } from './ruleEngine';
 import { PlayerNumber } from '../types/game.types';
+import { saveGameHistoryIfFinished } from './gameHistoryService';
 
+// Optimized board initialization (fixes Issue #13)
+// Pre-allocate arrays to avoid intermediate allocations
 export const initializeBoard = (boardSize: number): number[][] => {
-  return Array(boardSize)
-    .fill(null)
-    .map(() => Array(boardSize).fill(0));
+  const board: number[][] = new Array(boardSize);
+  for (let i = 0; i < boardSize; i++) {
+    board[i] = new Array(boardSize).fill(0);
+  }
+  return board;
 };
 
 export const generateRoomCode = async (): Promise<string> => {
@@ -61,11 +66,16 @@ export const makeMove = async (
   await move.save();
 
   // Check for win (with block two ends rule if enabled)
-  const isWin = checkWin(game.board, row, col, player, game.boardSize, game.rules.blockTwoEnds);
-  if (isWin) {
+  const winResult = checkWin(game.board, row, col, player, game.boardSize, game.rules.blockTwoEnds);
+  if (winResult.isWin) {
     game.gameStatus = 'finished';
     game.winner = player;
     game.finishedAt = new Date();
+    
+    // Save winning line
+    if (winResult.winningLine) {
+      (game as any).winningLine = winResult.winningLine;
+    }
     
     // Update scores
     if (player === 1) {
@@ -74,20 +84,22 @@ export const makeMove = async (
       game.score.player2++;
     }
     
-    console.log(`[GameEngine] Game ${game.roomId} finished - Winner: Player ${player}, finishedAt: ${game.finishedAt}`);
   }
 
   // Check for draw (board full)
   const isBoardFull = game.board.every(row => row.every(cell => cell !== 0));
-  if (isBoardFull && !isWin) {
+  if (isBoardFull && !winResult.isWin) {
     game.gameStatus = 'finished';
     game.winner = 'draw';
     game.finishedAt = new Date();
-    console.log(`[GameEngine] Game ${game.roomId} finished - Draw, finishedAt: ${game.finishedAt}`);
   }
 
   await game.save();
-  console.log(`[GameEngine] Game ${game.roomId} saved with status: ${game.gameStatus}, finishedAt: ${game.finishedAt}`);
+
+  // Save history immediately when game finishes
+  if (game.gameStatus === 'finished' && game.finishedAt) {
+    await saveGameHistoryIfFinished(game);
+  }
 
   return { success: true, game };
 };

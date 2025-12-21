@@ -25,6 +25,7 @@ export interface IGame extends Document {
   currentPlayer: 1 | 2;
   gameStatus: 'waiting' | 'playing' | 'finished' | 'abandoned';
   winner: 1 | 2 | null | 'draw';
+  winningLine?: Array<{ row: number; col: number }>;
   rules: IGameRules;
   score: IGameScore;
   moves: mongoose.Types.ObjectId[];
@@ -68,6 +69,7 @@ const GameSchema: Schema = new Schema({
     type: String,
     required: true,
     unique: true,
+    index: true, // Explicit index for faster lookups (fixes Issue #8)
   },
   roomCode: {
     type: String,
@@ -76,6 +78,7 @@ const GameSchema: Schema = new Schema({
     uppercase: true,
     minlength: 6,
     maxlength: 6,
+    index: true, // Index for room code lookups
   },
   gameType: {
     type: String,
@@ -125,6 +128,13 @@ const GameSchema: Schema = new Schema({
     type: Schema.Types.Mixed,
     default: null,
   },
+  winningLine: {
+    type: [{
+      row: { type: Number, required: true },
+      col: { type: Number, required: true },
+    }],
+    default: undefined,
+  },
   rules: {
     type: GameRulesSchema,
     required: true,
@@ -157,6 +167,9 @@ GameSchema.pre('save', function (next) {
   this.updatedAt = new Date();
   next();
 });
+
+// Compound index for getWaitingGames query (fixes Issue #8)
+GameSchema.index({ gameStatus: 1, createdAt: -1 });
 
 export default mongoose.model<IGame>('Game', GameSchema);
 

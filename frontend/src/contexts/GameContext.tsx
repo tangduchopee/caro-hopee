@@ -1,20 +1,45 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo, ReactNode } from 'react';
 import { Game, GameMove, PlayerInfo, PlayerNumber, Winner } from '../types/game.types';
 import { socketService } from '../services/socketService';
 import { getGuestId } from '../utils/guestId';
 import { useAuth } from './AuthContext';
+import { useSocket } from './SocketContext';
 import { gameApi, gameStatsApi } from '../services/api';
+import { saveGuestHistory } from '../utils/guestHistory';
+import { logger } from '../utils/logger';
 
-interface GameContextType {
+/**
+ * GameContext - Split into 3 separate contexts to prevent re-render cascade
+ * Fixes Critical Issue C4: Context Re-Render Cascade
+ *
+ * Architecture:
+ * 1. GameStateContext - Rarely changing (game, roomId, players, myPlayerNumber)
+ * 2. GamePlayContext - Frequently changing (currentPlayer, isMyTurn, lastMove, pendingUndo)
+ * 3. GameActionsContext - Never changes (all action functions)
+ *
+ * Components can subscribe to only what they need, preventing unnecessary re-renders.
+ */
+
+// ============================================================================
+// Context Types
+// ============================================================================
+
+interface GameStateContextType {
   game: Game | null;
   players: PlayerInfo[];
-  currentPlayer: PlayerNumber;
-  isMyTurn: boolean;
   myPlayerNumber: PlayerNumber | null;
   roomId: string | null;
+}
+
+interface GamePlayContextType {
+  currentPlayer: PlayerNumber;
+  isMyTurn: boolean;
+  lastMove: { row: number; col: number } | null;
   pendingUndoMove: number | null;
   undoRequestSent: boolean;
-  lastMove: { row: number; col: number } | null;
+}
+
+interface GameActionsContextType {
   setGame: (game: Game | null) => void;
   joinRoom: (roomId: string) => void;
   makeMove: (row: number, col: number) => void;
@@ -28,17 +53,31 @@ interface GameContextType {
   clearPendingUndo: () => void;
 }
 
+// Combined type for backward compatibility
+interface GameContextType extends GameStateContextType, GamePlayContextType, GameActionsContextType {}
+
+// ============================================================================
+// Create Contexts
+// ============================================================================
+
+const GameStateContext = createContext<GameStateContextType | undefined>(undefined);
+const GamePlayContext = createContext<GamePlayContextType | undefined>(undefined);
+const GameActionsContext = createContext<GameActionsContextType | undefined>(undefined);
+
+// Legacy context for backward compatibility
 const GameContext = createContext<GameContextType | undefined>(undefined);
 
-// Helper function to convert game data to players array
-// Note: This is a fallback - real usernames come from socket events
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
 const gameToPlayers = (game: Game): PlayerInfo[] => {
   const players: PlayerInfo[] = [];
-  
+
   if (game.player1) {
     players.push({
       id: game.player1,
-      username: 'Player 1', // Will be updated from socket event with real username
+      username: 'Player 1',
       isGuest: false,
       playerNumber: 1,
     });
@@ -50,11 +89,11 @@ const gameToPlayers = (game: Game): PlayerInfo[] => {
       playerNumber: 1,
     });
   }
-  
+
   if (game.player2) {
     players.push({
       id: game.player2,
-      username: 'Player 2', // Will be updated from socket event with real username
+      username: 'Player 2',
       isGuest: false,
       playerNumber: 2,
     });
@@ -66,12 +105,19 @@ const gameToPlayers = (game: Game): PlayerInfo[] => {
       playerNumber: 2,
     });
   }
-  
+
   return players;
 };
 
+// ============================================================================
+// Provider Component
+// ============================================================================
+
 export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { user, isAuthenticated } = useAuth();
+  const { isConnected: socketConnected } = useSocket();
+
+  // State values
   const [game, setGame] = useState<Game | null>(null);
   const [players, setPlayers] = useState<PlayerInfo[]>([]);
   const [roomId, setRoomId] = useState<string | null>(null);
@@ -79,409 +125,420 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [pendingUndoMove, setPendingUndoMove] = useState<number | null>(null);
   const [undoRequestSent, setUndoRequestSent] = useState<boolean>(false);
   const [lastMove, setLastMove] = useState<{ row: number; col: number } | null>(null);
-  
-  // Update players when game changes (only if players array is empty or doesn't match)
-  // This ensures we have initial players, but socket events take precedence for real-time updates
+
+  // Refs for cleanup and latest values
+  const rafIdRef = useRef<number | null>(null);
+  const isAuthenticatedRef = useRef(isAuthenticated);
+  const userRef = useRef(user);
+  const myPlayerNumberRef = useRef(myPlayerNumber);
+  const roomIdRef = useRef(roomId);
+  const playersRef = useRef(players);
+  const gameRef = useRef(game);
+  const pendingTimeoutsRef = useRef<NodeJS.Timeout[]>([]);
+  // Debounce refs to prevent rapid API calls during join/leave spam
+  const reloadGameDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingReloadRef = useRef<boolean>(false);
+
+  // Keep refs in sync
+  useEffect(() => { isAuthenticatedRef.current = isAuthenticated; }, [isAuthenticated]);
+  useEffect(() => { userRef.current = user; }, [user]);
+  useEffect(() => { myPlayerNumberRef.current = myPlayerNumber; }, [myPlayerNumber]);
+  useEffect(() => { roomIdRef.current = roomId; }, [roomId]);
+  useEffect(() => { playersRef.current = players; }, [players]);
+  useEffect(() => { gameRef.current = game; }, [game]);
+
+  // Update players when game changes
   useEffect(() => {
     if (game) {
       const gamePlayers = gameToPlayers(game);
-      console.log('Game changed, checking players from game data:', gamePlayers, 'current players:', players);
-      
-      // Use functional update to avoid dependency on players array
+
       setPlayers(prevPlayers => {
-        // Only update if players array is empty or significantly different
-        // This prevents overriding socket updates
-        if (prevPlayers.length === 0 || 
-            (gamePlayers.length > prevPlayers.length && 
+        if (prevPlayers.length === 0 ||
+            (gamePlayers.length > prevPlayers.length &&
              !gamePlayers.every(p => prevPlayers.some(ep => ep.id === p.id)))) {
-          console.log('Updating players from game data');
-          
-          // Update my player number
-          // Need to check both authenticated user ID and guest ID
-          // because user might have created game as guest, then logged in
+
           const guestId = getGuestId();
           const authenticatedUserId = isAuthenticated ? user?._id : null;
-          
-          console.log('Trying to match my player - authenticatedUserId:', authenticatedUserId, 'isAuthenticated:', isAuthenticated, 'guestId:', guestId);
-          console.log('Available players:', gamePlayers);
-          console.log('Game data - player1:', game.player1, 'player1GuestId:', game.player1GuestId, 'player2:', game.player2, 'player2GuestId:', game.player2GuestId);
-          
-          // Try to find player by matching either authenticated user ID or guest ID
+
           const myPlayer = gamePlayers.find(p => {
-            // Check if this player matches authenticated user ID
-            if (authenticatedUserId && p.id === authenticatedUserId && !p.isGuest) {
-              console.log('Matched by authenticated user ID:', p);
-              return true;
-            }
-            // Check if this player matches guest ID
-            if (guestId && p.id === guestId && p.isGuest) {
-              console.log('Matched by guest ID:', p);
-              return true;
-            }
-            // Also check if game data has our IDs (for edge cases)
-            if (authenticatedUserId && game.player1 === authenticatedUserId && p.playerNumber === 1 && !p.isGuest) {
-              console.log('Matched by game.player1:', p);
-              return true;
-            }
-            if (guestId && game.player1GuestId === guestId && p.playerNumber === 1 && p.isGuest) {
-              console.log('Matched by game.player1GuestId:', p);
-              return true;
-            }
-            if (authenticatedUserId && game.player2 === authenticatedUserId && p.playerNumber === 2 && !p.isGuest) {
-              console.log('Matched by game.player2:', p);
-              return true;
-            }
-            if (guestId && game.player2GuestId === guestId && p.playerNumber === 2 && p.isGuest) {
-              console.log('Matched by game.player2GuestId:', p);
-              return true;
-            }
+            if (authenticatedUserId && p.id === authenticatedUserId && !p.isGuest) return true;
+            if (guestId && p.id === guestId && p.isGuest) return true;
+            if (authenticatedUserId && game.player1 === authenticatedUserId && p.playerNumber === 1 && !p.isGuest) return true;
+            if (guestId && game.player1GuestId === guestId && p.playerNumber === 1 && p.isGuest) return true;
+            if (authenticatedUserId && game.player2 === authenticatedUserId && p.playerNumber === 2 && !p.isGuest) return true;
+            if (guestId && game.player2GuestId === guestId && p.playerNumber === 2 && p.isGuest) return true;
             return false;
           });
-          
+
           if (myPlayer) {
-            // Update my player number - will be set after state update completes
             const playerNumber = myPlayer.playerNumber;
-            // Use requestAnimationFrame to avoid state update during render
-            // Note: requestAnimationFrame completes very quickly (1 frame), so cleanup is not critical
-            // but we set it immediately to avoid potential issues
-            requestAnimationFrame(() => {
+            if (rafIdRef.current !== null) {
+              cancelAnimationFrame(rafIdRef.current);
+            }
+            rafIdRef.current = requestAnimationFrame(() => {
               setMyPlayerNumber(playerNumber);
-              console.log('My player number set from game data:', playerNumber, 'myPlayer:', myPlayer);
+              rafIdRef.current = null;
             });
-          } else {
-            console.warn('Could not find my player in gamePlayers:', gamePlayers, 'authenticatedUserId:', authenticatedUserId, 'guestId:', guestId, 'isGuest:', !isAuthenticated);
           }
-          
+
           return gamePlayers;
         }
         return prevPlayers;
       });
     }
+
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game, isAuthenticated, user?._id]);
 
+  // Debounced game reload to prevent rapid API calls during join/leave spam
+  const debouncedReloadGame = useCallback(async (isMounted: { current: boolean }) => {
+    // Mark that a reload is pending
+    pendingReloadRef.current = true;
+
+    // Clear any existing debounce timeout
+    if (reloadGameDebounceRef.current) {
+      clearTimeout(reloadGameDebounceRef.current);
+    }
+
+    // Debounce: wait 150ms before making API call
+    reloadGameDebounceRef.current = setTimeout(async () => {
+      if (!isMounted.current || !pendingReloadRef.current) return;
+
+      const currentRoomId = roomIdRef.current;
+      if (!currentRoomId) {
+        pendingReloadRef.current = false;
+        return;
+      }
+
+      try {
+        const updatedGame = await gameApi.getGame(currentRoomId);
+        if (!isMounted.current) return;
+
+        setGame(updatedGame);
+        const gamePlayers = gameToPlayers(updatedGame);
+        setPlayers(gamePlayers);
+
+        // Update my player number
+        const guestId = getGuestId();
+        const currentIsAuth = isAuthenticatedRef.current;
+        const authenticatedUserId = currentIsAuth ? userRef.current?._id : null;
+
+        const myPlayer = gamePlayers.find(p => {
+          if (authenticatedUserId && p.id === authenticatedUserId && !p.isGuest) return true;
+          if (guestId && p.id === guestId && p.isGuest) return true;
+          return false;
+        });
+
+        if (myPlayer) setMyPlayerNumber(myPlayer.playerNumber);
+      } catch (error: any) {
+        if (error.response?.status === 404) {
+          setRoomId(null);
+          setGame(null);
+          setPlayers([]);
+          setMyPlayerNumber(null);
+        }
+        logger.error('Failed to reload game state:', error);
+      } finally {
+        pendingReloadRef.current = false;
+      }
+    }, 150);
+  }, []);
+
+  // Socket listeners setup - runs when socket connects/disconnects
+  // CRITICAL FIX: Must depend on socketConnected to re-register listeners when socket reconnects
   useEffect(() => {
     const socket = socketService.getSocket();
-    if (!socket) return;
+    if (!socket || !socketConnected) return;
 
-    // Track if component is mounted to prevent state updates after unmount
-    let isMounted = true;
-    const pendingTimeouts: NodeJS.Timeout[] = [];
+    const isMountedRef = { current: true };
+
+    pendingTimeoutsRef.current.forEach(clearTimeout);
+    pendingTimeoutsRef.current = [];
+
+    // Cleanup debounce on unmount
+    const cleanupDebounce = () => {
+      if (reloadGameDebounceRef.current) {
+        clearTimeout(reloadGameDebounceRef.current);
+        reloadGameDebounceRef.current = null;
+      }
+      pendingReloadRef.current = false;
+    };
 
     const handleRoomJoined = (data: { roomId: string; players: PlayerInfo[]; gameStatus?: string; currentPlayer?: PlayerNumber }) => {
-      console.log('Room joined event received:', data);
+      if (!isMountedRef.current) return;
       setRoomId(data.roomId);
-      // Update players from socket - this ensures real-time sync
       setPlayers(data.players);
-      
-      // Determine my player number
-      // Need to check both authenticated user ID and guest ID
+
       const guestId = getGuestId();
-      const authenticatedUserId = isAuthenticated ? user?._id : null;
-      
-      console.log('Room-joined: Trying to match my player - authenticatedUserId:', authenticatedUserId, 'isAuthenticated:', isAuthenticated, 'guestId:', guestId);
-      console.log('Room-joined: Available players:', data.players);
-      
-      // Try to find player by matching either authenticated user ID or guest ID
+      const currentIsAuth = isAuthenticatedRef.current;
+      const currentUser = userRef.current;
+      const authenticatedUserId = currentIsAuth ? currentUser?._id : null;
+
       const myPlayer = data.players.find(p => {
-        // Check if this player matches authenticated user ID
-        if (authenticatedUserId && p.id === authenticatedUserId && !p.isGuest) {
-          console.log('Room-joined: Matched by authenticated user ID:', p);
-          return true;
-        }
-        // Check if this player matches guest ID
-        if (guestId && p.id === guestId && p.isGuest) {
-          console.log('Room-joined: Matched by guest ID:', p);
-          return true;
-        }
+        if (authenticatedUserId && p.id === authenticatedUserId && !p.isGuest) return true;
+        if (guestId && p.id === guestId && p.isGuest) return true;
         return false;
       });
-      
+
       if (myPlayer) {
         setMyPlayerNumber(myPlayer.playerNumber);
-        console.log('Player number set from room-joined:', myPlayer.playerNumber, 'for player:', myPlayer);
       } else {
-        console.warn('Could not find my player in players list:', data.players, 'authenticatedUserId:', authenticatedUserId, 'guestId:', guestId, 'isGuest:', !isAuthenticated);
         setMyPlayerNumber(null);
       }
-      
-      // Update game state with information from socket - use functional update to avoid dependency issues
+
+      // Update game state with player info from room-joined
+      // This ensures game has correct player2 info if they joined before we connected to room
       setGame(prevGame => {
         if (!prevGame) return prevGame;
+
+        // Find player2 from the players list
+        const player2 = data.players.find(p => p.playerNumber === 2);
+
         return {
           ...prevGame,
           gameStatus: (data.gameStatus as any) || prevGame.gameStatus,
           currentPlayer: data.currentPlayer || prevGame.currentPlayer,
+          // Update player2 info if present in room-joined data
+          ...(player2 ? {
+            player2: player2.isGuest ? null : player2.id,
+            player2GuestId: player2.isGuest ? player2.id : null,
+          } : {}),
         };
       });
     };
 
-    const handlePlayerJoined = async (data: { player: PlayerInfo }) => {
-      if (!isMounted) return;
-      console.log('Player joined event received:', data);
-      
-      // Update players list
+    const handlePlayerJoined = (data: { player: PlayerInfo }) => {
+      if (!isMountedRef.current) return;
+
       setPlayers(prev => {
-        // Check if player already exists
         const exists = prev.some(p => p.id === data.player.id);
-        if (exists) {
-          console.log('Player already exists, skipping:', data.player.id);
-          return prev;
-        }
-        
+        if (exists) return prev;
+
         const updated = [...prev, data.player];
-        console.log('Updated players list:', updated);
-        // Update my player number if this is me joining
         const guestId = getGuestId();
-        const myId = isAuthenticated ? user?._id : guestId;
-        if (data.player.id === myId && 
-            ((isAuthenticated && !data.player.isGuest) || (!isAuthenticated && data.player.isGuest))) {
+        const currentIsAuth = isAuthenticatedRef.current;
+        const myId = currentIsAuth ? userRef.current?._id : guestId;
+        if (data.player.id === myId &&
+            ((currentIsAuth && !data.player.isGuest) || (!currentIsAuth && data.player.isGuest))) {
           setMyPlayerNumber(data.player.playerNumber);
         }
         return updated;
       });
-      
-      // Reload game state to get updated player2/player2GuestId
-      // Use roomId from closure, but check isMounted before setting state
-      if (roomId && isMounted) {
-        try {
-          const updatedGame = await gameApi.getGame(roomId);
-          if (isMounted) {
-            setGame(updatedGame);
-            console.log('Game state reloaded after player joined:', updatedGame);
+
+      // Immediately update game state with player2 info (no debounce for joining)
+      // This ensures the "Start Game" button appears immediately for player1
+      if (data.player.playerNumber === 2) {
+        setGame(prevGame => {
+          if (!prevGame) return prevGame;
+          // Update game with player2 info based on guest status
+          if (data.player.isGuest) {
+            return {
+              ...prevGame,
+              player2GuestId: data.player.id,
+              player2: null,
+            };
+          } else {
+            return {
+              ...prevGame,
+              player2: data.player.id,
+              player2GuestId: null,
+            };
           }
-        } catch (error) {
-          console.error('Failed to reload game state after player joined:', error);
-        }
+        });
       }
-      
-      // Don't auto-update game status - wait for start button
+
+      // Still do debounced reload for complete data sync (optional, for consistency)
+      const currentGame = gameRef.current;
+      if (!currentGame || !currentGame.player2) {
+        debouncedReloadGame(isMountedRef);
+      }
     };
 
-    const handlePlayerLeft = async (data: { playerId?: string; playerNumber?: number; roomId?: string; hostTransferred?: boolean; gameReset?: boolean }) => {
-      if (!isMounted) return;
-      console.log('handlePlayerLeft called with:', data, 'current roomId:', roomId);
-      
-      // Always reload game state when any player leaves (if we have roomId)
-      // Check if this event is for our current room
-      const isForCurrentRoom = !data.roomId || data.roomId === roomId;
+    const handlePlayerLeft = (data: { 
+      playerId?: string; 
+      playerNumber?: number; 
+      roomId?: string; 
+      hostTransferred?: boolean; 
+      gameReset?: boolean;
+      game?: {
+        player1: any;
+        player1GuestId: string | null;
+        player2: any;
+        player2GuestId: string | null;
+        gameStatus: string;
+        currentPlayer: number;
+      };
+    }) => {
+      if (!isMountedRef.current) return;
+
+      const currentRoomId = roomIdRef.current;
+      const isForCurrentRoom = !data.roomId || data.roomId === currentRoomId;
       const hasRelevantData = data.hostTransferred || data.playerNumber !== undefined || data.playerId || data.gameReset;
-      
-      // If we have roomId and this event is relevant, always reload
-      if (roomId && (isForCurrentRoom || hasRelevantData) && isMounted) {
-        try {
-          console.log('Reloading game state after player left...');
-          const updatedGame = await gameApi.getGame(roomId);
-          if (!isMounted) return;
-          
-          // Get current game state using functional update to avoid stale closure
-          // If game was finished and now is waiting, it means the other player left
-          // and game was reset - modal will auto-close because showWinnerModal checks gameStatus
-          let wasFinished = false;
-          setGame(prevGame => {
-            wasFinished = prevGame?.gameStatus === 'finished' || false;
-            return prevGame; // Don't update yet, we'll update with updatedGame below
-          });
-          const nowWaiting = updatedGame.gameStatus === 'waiting';
-          
-          console.log('Updated game state:', {
-            gameStatus: updatedGame.gameStatus,
-            wasFinished,
-            nowWaiting,
-            hostTransferred: data.hostTransferred,
-            player1: updatedGame.player1 || updatedGame.player1GuestId,
-            player2: updatedGame.player2 || updatedGame.player2GuestId,
-          });
-          
-          setGame(updatedGame);
-          
-          // Update players list from game data
-          const gamePlayers = gameToPlayers(updatedGame);
-          console.log('[handlePlayerLeft] Updated players from game data:', gamePlayers, 'length:', gamePlayers.length);
-          console.log('[handlePlayerLeft] Game data:', {
-            player1: updatedGame.player1 || updatedGame.player1GuestId,
-            player2: updatedGame.player2 || updatedGame.player2GuestId,
-            gameStatus: updatedGame.gameStatus,
-          });
-          setPlayers(gamePlayers);
-          
-          // Update my player number
-          const guestId = getGuestId();
-          const authenticatedUserId = isAuthenticated ? user?._id : null;
-          
-          const myPlayer = gamePlayers.find(p => {
-            if (authenticatedUserId && p.id === authenticatedUserId && !p.isGuest) return true;
-            if (guestId && p.id === guestId && p.isGuest) return true;
-            return false;
-          });
-          
-          if (myPlayer) {
-            setMyPlayerNumber(myPlayer.playerNumber);
-            if (data.hostTransferred) {
-              console.log('Host transferred - updated my player number to:', myPlayer.playerNumber);
-            }
-          } else {
-            // If we're not in the players list anymore, we might have been removed
-            // But this shouldn't happen if we're still in the room
-            console.log('Player left - my player not found in updated game');
-          }
-          
-          if (wasFinished && nowWaiting) {
-            console.log('Game reset from finished to waiting - modal will auto-close');
-          }
-          
-          console.log('Game state reloaded after player left:', updatedGame, 'hostTransferred:', data.hostTransferred);
-          console.log('Updated players list:', gamePlayers, 'length:', gamePlayers.length);
-          
-          // Force re-render by logging current state
-          console.log('[handlePlayerLeft] Final state - gameStatus:', updatedGame.gameStatus, 'players.length:', gamePlayers.length);
-        } catch (error: any) {
-          console.error('Failed to reload game state after player left:', error);
-          // If game was deleted (404), clear state immediately
-          if (error.response?.status === 404) {
-            console.log('Game was deleted (404) - clearing state immediately');
-            setRoomId(null);
-            setGame(null);
-            setPlayers([]);
-            setMyPlayerNumber(null);
-            return;
-          }
-          // Fallback: manually update players list if reload fails
-          if (data.playerNumber) {
-            setPlayers(prev => {
-              const filtered = prev.filter(p => p.playerNumber !== data.playerNumber);
-              console.log('Manually updated players list after player left:', filtered, 'length:', filtered.length);
-              // If no players left, clear game state
-              if (filtered.length === 0) {
-                console.log('No players left - clearing game state');
-                setGame(null);
-                setRoomId(null);
-                setMyPlayerNumber(null);
-              }
-              return filtered;
-            });
-          } else if (data.playerId) {
-            setPlayers(prev => {
-              const filtered = prev.filter(p => p.id !== data.playerId);
-              console.log('Manually updated players list after player left:', filtered, 'length:', filtered.length);
-              // If no players left, clear game state
-              if (filtered.length === 0) {
-                console.log('No players left - clearing game state');
-                setGame(null);
-                setRoomId(null);
-                setMyPlayerNumber(null);
-              }
-              return filtered;
-            });
-          }
-        }
-        return;
-      }
-      
-      // If we don't have roomId but received player-left event, try to reload if we have game
-      if (!roomId && game && game.roomId) {
-        console.log('No roomId in state, but have game.roomId, reloading...');
-        try {
-          const updatedGame = await gameApi.getGame(game.roomId);
-          if (isMounted) {
-            setGame(updatedGame);
-            const gamePlayers = gameToPlayers(updatedGame);
-            setPlayers(gamePlayers);
-            console.log('Game state reloaded using game.roomId');
-          }
-        } catch (error) {
-          console.error('Failed to reload game state:', error);
-        }
-        return;
-      }
-      
-      // If game is deleted, clear everything
-      if (data.roomId && data.roomId === roomId) {
+
+      // If host was transferred, update game state immediately
+      if (data.hostTransferred && data.game) {
+        const currentUser = userRef.current;
+        const isAuth = isAuthenticatedRef.current;
+        const currentGuestId = localStorage.getItem('guestId');
+
+        // Update game state immediately
         setGame(prevGame => {
           if (!prevGame) return prevGame;
           return {
             ...prevGame,
-            gameStatus: 'abandoned' as any,
+            player1: data.game!.player1,
+            player1GuestId: data.game!.player1GuestId,
+            player2: data.game!.player2,
+            player2GuestId: data.game!.player2GuestId,
+            gameStatus: data.game!.gameStatus as any,
+            currentPlayer: data.game!.currentPlayer as any,
           };
         });
+
+        // Update myPlayerNumber if host transfer affects current user
+        // If I was player2 and host transferred, I'm now player1
+        if (myPlayerNumberRef.current === 2) {
+          setMyPlayerNumber(1);
+          console.log('[GameContext] Host transferred: I am now player1');
+        }
+
+        // Update players list
+        setPlayers(prev => {
+          const filtered = data.playerNumber ? prev.filter(p => p.playerNumber !== data.playerNumber) : prev;
+          // Update player numbers if host was transferred
+          if (data.hostTransferred) {
+            return filtered.map(p => {
+              if (p.playerNumber === 2) {
+                return { ...p, playerNumber: 1 };
+              }
+              return p;
+            });
+          }
+          return filtered;
+        });
+      } else {
+        // Immediately update players list for responsive UI
+        if (data.playerNumber) {
+          setPlayers(prev => prev.filter(p => p.playerNumber !== data.playerNumber));
+        }
+      }
+
+      // Use debounced reload for API call to prevent spam (but immediate update above handles host transfer)
+      if (currentRoomId && (isForCurrentRoom || hasRelevantData)) {
+        debouncedReloadGame(isMountedRef);
       }
     };
 
     const handleGameDeleted = (data: { roomId: string }) => {
-      console.log('handleGameDeleted called with:', data, 'current roomId:', roomId);
-      // If this is our game, clear everything immediately
-      if (data.roomId === roomId) {
-        console.log('Game deleted - clearing state immediately');
+      if (!isMountedRef.current) return;
+      if (data.roomId === roomIdRef.current) {
         setRoomId(null);
         setGame(null);
         setPlayers([]);
         setMyPlayerNumber(null);
-        // Note: Navigation will be handled by GameRoomPage useEffect that watches for game === null
       }
     };
 
     const handleMoveMade = (data: { move: GameMove | null; board: number[][]; currentPlayer: PlayerNumber }) => {
-      console.log('Move made event received:', data);
+      if (!isMountedRef.current) return;
       setGame(prevGame => {
-        if (!prevGame) {
-          console.warn('Received move-made but no game state');
-          return prevGame;
-        }
-        console.log('Updating game state with move:', {
-          oldBoard: prevGame.board,
-          newBoard: data.board,
-          oldCurrentPlayer: prevGame.currentPlayer,
-          newCurrentPlayer: data.currentPlayer,
-        });
+        if (!prevGame) return prevGame;
         return {
           ...prevGame,
           board: data.board,
           currentPlayer: data.currentPlayer,
-          gameStatus: 'playing', // Ensure game status is playing
+          gameStatus: 'playing',
         };
       });
-      // Update last move for highlighting (keep it permanently)
       if (data.move) {
         setLastMove({ row: data.move.row, col: data.move.col });
       }
-      // Reset undo request sent when a new move is made
       setUndoRequestSent(false);
     };
 
-    const handleGameFinished = async (data: { winner: Winner; reason: string }) => {
-      // Capture game data before updating state to avoid stale closure
-      let finishedGameData: { roomId: string; roomCode: string; boardSize: number } | null = null;
-      
+    const handleGameFinished = async (data: { 
+      winner: Winner; 
+      reason: string;
+      winningLine?: Array<{ row: number; col: number }>;
+      score?: { player1: number; player2: number };
+    }) => {
+      if (!isMountedRef.current) return;
+
+      let finishedGameData: {
+        roomId: string;
+        roomCode: string;
+        boardSize: number;
+        board: number[][];
+        winner: Winner;
+        winningLine?: Array<{ row: number; col: number }>;
+        score: { player1: number; player2: number };
+        createdAt: string;
+        finishedAt: string | null;
+      } | null = null;
+
       setGame(prevGame => {
         if (!prevGame) return prevGame;
-        // Capture game data before state update
+        
+        // Use winningLine and score from event data if available, otherwise fallback to prevGame
+        const winningLine = data.winningLine !== undefined ? data.winningLine : prevGame.winningLine;
+        const score = data.score || prevGame.score;
+        
         finishedGameData = {
           roomId: prevGame.roomId,
           roomCode: prevGame.roomCode,
           boardSize: prevGame.boardSize,
-        };
-        return {
-          ...prevGame,
-          gameStatus: 'finished',
+          board: prevGame.board,
           winner: data.winner,
+          winningLine: winningLine,
+          score: score,
+          createdAt: prevGame.createdAt,
+          finishedAt: prevGame.finishedAt,
+        };
+        
+        return { 
+          ...prevGame, 
+          gameStatus: 'finished', 
+          winner: data.winner,
+          winningLine: winningLine,
+          score: score,
         };
       });
 
-      // Submit game result to stats API if user is authenticated
-      // Use setTimeout to ensure state is updated
-      // Note: This timeout is inside a socket handler, cleanup handled by socket cleanup
-      // Capture values from closure to avoid stale values
-      const currentIsAuthenticated = isAuthenticated;
-      const currentUser = user;
-      const currentMyPlayerNumber = myPlayerNumber;
-      
       const timeoutId = setTimeout(async () => {
-        if (!isMounted) return;
-        if (currentIsAuthenticated && currentUser && finishedGameData && currentMyPlayerNumber) {
+        if (!isMountedRef.current) return;
+
+        // Re-capture game state inside timeout to fix race condition (C3 in frontend audit)
+        const currentGame = gameRef.current;
+        const currentFinishedData = finishedGameData || (currentGame ? {
+          roomId: currentGame.roomId,
+          roomCode: currentGame.roomCode,
+          boardSize: currentGame.boardSize,
+          board: currentGame.board,
+          winner: currentGame.winner,
+          winningLine: currentGame.winningLine,
+          score: currentGame.score,
+          createdAt: currentGame.createdAt,
+          finishedAt: currentGame.finishedAt,
+        } : null);
+
+        const currentIsAuthenticated = isAuthenticatedRef.current;
+        const currentUser = userRef.current;
+        const currentMyPlayerNumber = myPlayerNumberRef.current;
+        const currentPlayers = playersRef.current;
+
+        if (!currentIsAuthenticated && currentFinishedData && currentMyPlayerNumber) {
           try {
-            // Determine result: winner can be 1, 2, 'draw', or null
+            const opponent = currentPlayers.find(p => p.playerNumber !== currentMyPlayerNumber);
+            const opponentUsername = opponent?.username || 'Unknown';
+
             let myResult: 'win' | 'loss' | 'draw';
-            const winner = data.winner;
+            const winner = currentFinishedData.winner;
             if (winner === 'draw' || winner === null) {
               myResult = 'draw';
             } else if (currentMyPlayerNumber === winner) {
@@ -489,89 +546,116 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             } else {
               myResult = 'loss';
             }
-            
+
+            saveGuestHistory({
+              roomId: currentFinishedData.roomId,
+              roomCode: currentFinishedData.roomCode,
+              boardSize: currentFinishedData.boardSize,
+              board: currentFinishedData.board,
+              winner: currentFinishedData.winner,
+              winningLine: currentFinishedData.winningLine,
+              score: currentFinishedData.score,
+              finishedAt: currentFinishedData.finishedAt,
+              createdAt: currentFinishedData.createdAt,
+              myPlayerNumber: currentMyPlayerNumber,
+              opponentUsername,
+              result: myResult,
+            });
+          } catch (error) {
+            logger.error('[GameContext] Failed to save guest history:', error);
+          }
+        }
+
+        if (currentIsAuthenticated && currentUser && currentFinishedData && currentMyPlayerNumber) {
+          try {
+            let myResult: 'win' | 'loss' | 'draw';
+            const winner = currentFinishedData.winner;
+            if (winner === 'draw' || winner === null) {
+              myResult = 'draw';
+            } else if (currentMyPlayerNumber === winner) {
+              myResult = 'win';
+            } else {
+              myResult = 'loss';
+            }
+
             await gameStatsApi.submitGameResult(
-              'caro', // gameId
+              'caro',
               myResult,
-              undefined, // score will be calculated on server
-              undefined, // customStats
+              undefined,
+              undefined,
               {
-                roomId: finishedGameData.roomId,
-                roomCode: finishedGameData.roomCode,
-                boardSize: finishedGameData.boardSize,
+                roomId: currentFinishedData.roomId,
+                roomCode: currentFinishedData.roomCode,
+                boardSize: currentFinishedData.boardSize,
               }
             );
           } catch (error) {
-            console.error('Failed to submit game result:', error);
-            // Don't block UI if stats submission fails
+            logger.error('Failed to submit game result:', error);
           }
         }
+
+        // Remove self from pending timeouts array (fixes H1: timeout array growth)
+        const index = pendingTimeoutsRef.current.indexOf(timeoutId);
+        if (index > -1) {
+          pendingTimeoutsRef.current.splice(index, 1);
+        }
       }, 100);
-      pendingTimeouts.push(timeoutId);
+      pendingTimeoutsRef.current.push(timeoutId);
     };
 
     const handleScoreUpdated = (data: { score: { player1: number; player2: number } }) => {
+      if (!isMountedRef.current) return;
       setGame(prevGame => {
         if (!prevGame) return prevGame;
-        return {
-          ...prevGame,
-          score: data.score,
-        };
+        return { ...prevGame, score: data.score };
       });
     };
 
     const handleUndoRequested = (data: { moveNumber: number; requestedBy: PlayerNumber }) => {
-      // Only show dialog if it's not my move (opponent wants to undo)
-      // Use current myPlayerNumber from closure
-      const currentMyPlayerNumber = myPlayerNumber;
-      if (data.requestedBy !== currentMyPlayerNumber) {
+      if (!isMountedRef.current) return;
+      if (data.requestedBy !== myPlayerNumberRef.current) {
         setPendingUndoMove(data.moveNumber);
       }
     };
 
     const handleUndoApproved = (data: { moveNumber: number; board: number[][] }) => {
+      if (!isMountedRef.current) return;
       setGame(prevGame => {
         if (!prevGame) return prevGame;
-        return {
-          ...prevGame,
-          board: data.board,
-        };
+        return { ...prevGame, board: data.board };
       });
       setPendingUndoMove(null);
       setUndoRequestSent(false);
-      setLastMove(null); // Clear last move highlight when undo
+      setLastMove(null);
     };
 
-    const handleUndoRejected = (data: { moveNumber: number }) => {
-      // When opponent rejects our undo request
+    const handleUndoRejected = () => {
+      if (!isMountedRef.current) return;
       setUndoRequestSent(false);
     };
 
     const handleGameStarted = (data: { currentPlayer: PlayerNumber }) => {
+      if (!isMountedRef.current) return;
       setGame(prevGame => {
         if (!prevGame) return prevGame;
-        return {
-          ...prevGame,
-          gameStatus: 'playing',
-          currentPlayer: data.currentPlayer,
-        };
+        return { ...prevGame, gameStatus: 'playing', currentPlayer: data.currentPlayer };
       });
-      setLastMove(null); // Clear last move when game starts
+      setLastMove(null);
     };
 
     const handleGameError = (data: { message: string }) => {
-      console.error('Game error received:', data.message);
+      logger.error('Game error received:', data.message);
       alert(`Game Error: ${data.message}`);
     };
 
     const handleMoveValidated = (data: { valid: boolean; message?: string }) => {
-      console.log('Move validated event received:', data);
       if (!data.valid) {
-        console.warn('Move was invalid:', data.message);
+        logger.warn('Move was invalid:', data.message);
         alert(`Invalid move: ${data.message}`);
       }
     };
 
+    // Register all socket listeners
     socket.on('room-joined', handleRoomJoined);
     socket.on('player-joined', handlePlayerJoined);
     socket.on('player-left', handlePlayerLeft);
@@ -587,14 +671,11 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     socket.on('game-error', handleGameError);
 
     return () => {
-      // Mark as unmounted to prevent state updates
-      isMounted = false;
-      
-      // Clear all pending timeouts
-      pendingTimeouts.forEach((timeoutId: NodeJS.Timeout) => clearTimeout(timeoutId));
-      pendingTimeouts.length = 0;
-      
-      // Remove all socket listeners
+      isMountedRef.current = false;
+      pendingTimeoutsRef.current.forEach(clearTimeout);
+      pendingTimeoutsRef.current = [];
+      cleanupDebounce();
+
       socket.off('room-joined', handleRoomJoined);
       socket.off('player-joined', handlePlayerJoined);
       socket.off('player-left', handlePlayerLeft);
@@ -609,188 +690,259 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       socket.off('game-started', handleGameStarted);
       socket.off('game-error', handleGameError);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, user, myPlayerNumber, roomId]);
+  }, [debouncedReloadGame, socketConnected]);
+
+  // Auto-rejoin room when socket reconnects (to re-register with the backend socket room)
+  useEffect(() => {
+    if (!socketConnected) return;
+
+    const currentRoomId = roomIdRef.current;
+    if (!currentRoomId) return;
+
+    const socket = socketService.getSocket();
+    if (!socket) return;
+
+    // Re-emit join-room to ensure we're in the socket room after reconnection
+    const guestId = getGuestId();
+    const currentIsAuth = isAuthenticatedRef.current;
+    const currentUser = userRef.current;
+    const playerId = currentIsAuth ? currentUser?._id || '' : guestId;
+    const isGuest = !currentIsAuth;
+
+    logger.log('[GameContext] Socket reconnected, rejoining room:', currentRoomId);
+    socket.emit('join-room', { roomId: currentRoomId, playerId, isGuest });
+  }, [socketConnected]);
+
+  // ============================================================================
+  // Actions (memoized with useCallback)
+  // ============================================================================
 
   const joinRoom = useCallback((newRoomId: string): void => {
     const socket = socketService.getSocket();
     if (!socket) return;
 
-    // Don't join if already in this room
-    if (newRoomId === roomId) {
-      return;
-    }
+    if (newRoomId === roomIdRef.current) return;
 
     const guestId = getGuestId();
-    
-    // Determine playerId based on game data
-    // If game has guestId for this player, use guestId; otherwise use userId
+    const currentGame = gameRef.current;
+    const currentIsAuth = isAuthenticatedRef.current;
+    const currentUser = userRef.current;
+
     let playerId: string;
     let isGuest: boolean;
-    
-    if (game) {
-      // Check if this player is in the game as guest or authenticated
-      const myId = isAuthenticated ? user?._id : guestId;
-      const isPlayer1Guest = game.player1GuestId && game.player1GuestId === guestId;
-      const isPlayer2Guest = game.player2GuestId && game.player2GuestId === guestId;
-      const isPlayer1Auth = game.player1 && game.player1 === myId;
-      const isPlayer2Auth = game.player2 && game.player2 === myId;
-      
+
+    if (currentGame) {
+      const myId = currentIsAuth ? currentUser?._id : guestId;
+      const isPlayer1Guest = currentGame.player1GuestId && currentGame.player1GuestId === guestId;
+      const isPlayer2Guest = currentGame.player2GuestId && currentGame.player2GuestId === guestId;
+      const isPlayer1Auth = currentGame.player1 && currentGame.player1 === myId;
+      const isPlayer2Auth = currentGame.player2 && currentGame.player2 === myId;
+
       if (isPlayer1Guest || isPlayer2Guest) {
-        // Player is in game as guest, use guestId
         playerId = guestId;
         isGuest = true;
       } else if (isPlayer1Auth || isPlayer2Auth) {
-        // Player is in game as authenticated, use userId
-        playerId = user?._id || '';
+        playerId = currentUser?._id || '';
         isGuest = false;
       } else {
-        // Not yet in game, use guestId if not authenticated, userId if authenticated
-        playerId = isAuthenticated ? user?._id || '' : guestId;
-        isGuest = !isAuthenticated;
+        playerId = currentIsAuth ? currentUser?._id || '' : guestId;
+        isGuest = !currentIsAuth;
       }
     } else {
-      // No game data yet, use default logic
-      playerId = isAuthenticated ? user?._id || '' : guestId;
-      isGuest = !isAuthenticated;
+      playerId = isAuthenticatedRef.current ? userRef.current?._id || '' : guestId;
+      isGuest = !isAuthenticatedRef.current;
     }
 
-    console.log('Joining room:', { roomId: newRoomId, playerId, isGuest, gamePlayer1GuestId: game?.player1GuestId, gamePlayer2GuestId: game?.player2GuestId });
     socket.emit('join-room', { roomId: newRoomId, playerId, isGuest });
     setRoomId(newRoomId);
-  }, [isAuthenticated, user?._id, roomId, game]);
+  }, []);
 
-  const makeMove = (row: number, col: number): void => {
-    if (!roomId) {
-      console.error('Cannot make move: no roomId');
-      return;
-    }
+  const makeMove = useCallback((row: number, col: number): void => {
+    const currentRoomId = roomIdRef.current;
+    if (!currentRoomId) return;
+
     const socket = socketService.getSocket();
-    if (!socket) {
-      console.error('Cannot make move: socket not connected');
-      return;
-    }
+    if (!socket) return;
 
-    console.log('Emitting make-move:', { roomId, row, col, myPlayerNumber });
-    socket.emit('make-move', { roomId, row, col });
-  };
+    socket.emit('make-move', { roomId: currentRoomId, row, col });
+  }, []);
 
-  const requestUndo = (moveNumber: number): void => {
-    if (!roomId) return;
+  const requestUndo = useCallback((moveNumber: number): void => {
+    const currentRoomId = roomIdRef.current;
+    if (!currentRoomId) return;
+
     const socket = socketService.getSocket();
     if (!socket) return;
 
     setUndoRequestSent(true);
-    socket.emit('request-undo', { roomId, moveNumber });
-  };
+    socket.emit('request-undo', { roomId: currentRoomId, moveNumber });
+  }, []);
 
-  const approveUndo = (moveNumber: number): void => {
-    if (!roomId) return;
+  const approveUndo = useCallback((moveNumber: number): void => {
+    const currentRoomId = roomIdRef.current;
+    if (!currentRoomId) return;
+
     const socket = socketService.getSocket();
     if (!socket) return;
 
-    socket.emit('approve-undo', { roomId, moveNumber });
-  };
+    socket.emit('approve-undo', { roomId: currentRoomId, moveNumber });
+  }, []);
 
-  const rejectUndo = (): void => {
-    if (!roomId) return;
+  const rejectUndo = useCallback((): void => {
+    const currentRoomId = roomIdRef.current;
+    if (!currentRoomId) return;
+
     const socket = socketService.getSocket();
     if (!socket) return;
 
-    socket.emit('reject-undo', { roomId });
+    socket.emit('reject-undo', { roomId: currentRoomId });
     setPendingUndoMove(null);
-  };
+  }, []);
 
-  const clearPendingUndo = (): void => {
+  const clearPendingUndo = useCallback((): void => {
     setPendingUndoMove(null);
-  };
+  }, []);
 
-  const surrender = (): void => {
-    if (!roomId) return;
+  const surrender = useCallback((): void => {
+    const currentRoomId = roomIdRef.current;
+    if (!currentRoomId) return;
+
     const socket = socketService.getSocket();
     if (!socket) return;
 
-    socket.emit('surrender', { roomId });
-  };
+    socket.emit('surrender', { roomId: currentRoomId });
+  }, []);
 
-  const startGame = (): void => {
-    if (!roomId) return;
+  const startGame = useCallback((): void => {
+    const currentRoomId = roomIdRef.current;
+    if (!currentRoomId) return;
+
     const socket = socketService.getSocket();
     if (!socket) return;
 
-    socket.emit('start-game', { roomId });
-  };
+    // Optimistically update game status to 'playing' for immediate UI feedback
+    // This prevents the "Start Game" button from staying visible due to socket delays
+    setGame(prevGame => {
+      if (!prevGame) return prevGame;
+      // Only update if still waiting (prevent double update)
+      if (prevGame.gameStatus !== 'waiting') return prevGame;
+      return { ...prevGame, gameStatus: 'playing' };
+    });
 
-  const newGame = (): void => {
-    if (!roomId) return;
+    socket.emit('start-game', { roomId: currentRoomId });
+  }, []);
+
+  const newGame = useCallback((): void => {
+    const currentRoomId = roomIdRef.current;
+    if (!currentRoomId) return;
+
     const socket = socketService.getSocket();
     if (!socket) return;
 
-    socket.emit('new-game', { roomId });
-  };
+    socket.emit('new-game', { roomId: currentRoomId });
+  }, []);
 
-  const leaveRoom = async (): Promise<void> => {
-    if (!roomId) return;
-    
+  const leaveRoom = useCallback(async (): Promise<void> => {
+    const currentRoomId = roomIdRef.current;
+    if (!currentRoomId) return;
+
     try {
-      // Call API to leave game (this will remove player and delete game if no players remain)
-      await gameApi.leaveGame(roomId);
-      
-      // Emit socket event to leave the room
+      await gameApi.leaveGame(currentRoomId);
+
       const socket = socketService.getSocket();
       if (socket) {
-        socket.emit('leave-room', { roomId });
+        socket.emit('leave-room', { roomId: currentRoomId });
       }
-      
-      // Clear local state
+
       setRoomId(null);
       setGame(null);
       setPlayers([]);
       setMyPlayerNumber(null);
     } catch (error) {
-      console.error('Failed to leave game:', error);
-      // Still clear local state even if API call fails
+      logger.error('Failed to leave game:', error);
       setRoomId(null);
       setGame(null);
       setPlayers([]);
       setMyPlayerNumber(null);
       throw error;
     }
-  };
+  }, []);
+
+  // ============================================================================
+  // Derived State
+  // ============================================================================
 
   const currentPlayer = game?.currentPlayer || 1;
   const isMyTurn = myPlayerNumber !== null && currentPlayer === myPlayerNumber;
 
+  // ============================================================================
+  // Memoized Context Values (Split to prevent cascade re-renders)
+  // ============================================================================
+
+  // State context - changes infrequently
+  const stateValue = useMemo<GameStateContextType>(() => ({
+    game,
+    players,
+    myPlayerNumber,
+    roomId,
+  }), [game, players, myPlayerNumber, roomId]);
+
+  // Play context - changes frequently during gameplay
+  const playValue = useMemo<GamePlayContextType>(() => ({
+    currentPlayer,
+    isMyTurn,
+    lastMove,
+    pendingUndoMove,
+    undoRequestSent,
+  }), [currentPlayer, isMyTurn, lastMove, pendingUndoMove, undoRequestSent]);
+
+  // Actions context - never changes (functions are memoized with useCallback)
+  const actionsValue = useMemo<GameActionsContextType>(() => ({
+    setGame,
+    joinRoom,
+    makeMove,
+    requestUndo,
+    approveUndo,
+    rejectUndo,
+    surrender,
+    startGame,
+    newGame,
+    leaveRoom,
+    clearPendingUndo,
+  }), [joinRoom, makeMove, requestUndo, approveUndo, rejectUndo, surrender, startGame, newGame, leaveRoom, clearPendingUndo]);
+
+  // Combined context for backward compatibility
+  const combinedValue = useMemo<GameContextType>(() => ({
+    ...stateValue,
+    ...playValue,
+    ...actionsValue,
+  }), [stateValue, playValue, actionsValue]);
+
+  // ============================================================================
+  // Render with nested providers
+  // ============================================================================
+
   return (
-    <GameContext.Provider
-      value={{
-        game,
-        players,
-        currentPlayer,
-        isMyTurn,
-        myPlayerNumber,
-        roomId,
-        pendingUndoMove,
-        undoRequestSent,
-        lastMove,
-        setGame,
-        joinRoom,
-        makeMove,
-        requestUndo,
-        approveUndo,
-        rejectUndo,
-        surrender,
-        startGame,
-        newGame,
-        leaveRoom,
-        clearPendingUndo,
-      }}
-    >
-      {children}
-    </GameContext.Provider>
+    <GameStateContext.Provider value={stateValue}>
+      <GamePlayContext.Provider value={playValue}>
+        <GameActionsContext.Provider value={actionsValue}>
+          <GameContext.Provider value={combinedValue}>
+            {children}
+          </GameContext.Provider>
+        </GameActionsContext.Provider>
+      </GamePlayContext.Provider>
+    </GameStateContext.Provider>
   );
 };
 
+// ============================================================================
+// Hooks
+// ============================================================================
+
+/**
+ * useGame - Full context (backward compatible)
+ * Use this when you need everything, but prefer specific hooks for better performance
+ */
 export const useGame = (): GameContextType => {
   const context = useContext(GameContext);
   if (context === undefined) {
@@ -799,3 +951,38 @@ export const useGame = (): GameContextType => {
   return context;
 };
 
+/**
+ * useGameState - Subscribe only to game state (rarely changes)
+ * Use for: game board, players list, room info
+ */
+export const useGameState = (): GameStateContextType => {
+  const context = useContext(GameStateContext);
+  if (context === undefined) {
+    throw new Error('useGameState must be used within a GameProvider');
+  }
+  return context;
+};
+
+/**
+ * useGamePlay - Subscribe only to play state (changes frequently)
+ * Use for: turn indicator, last move highlight, undo state
+ */
+export const useGamePlay = (): GamePlayContextType => {
+  const context = useContext(GamePlayContext);
+  if (context === undefined) {
+    throw new Error('useGamePlay must be used within a GameProvider');
+  }
+  return context;
+};
+
+/**
+ * useGameActions - Subscribe only to actions (never changes)
+ * Use for: buttons, controls that trigger game actions
+ */
+export const useGameActions = (): GameActionsContextType => {
+  const context = useContext(GameActionsContext);
+  if (context === undefined) {
+    throw new Error('useGameActions must be used within a GameProvider');
+  }
+  return context;
+};

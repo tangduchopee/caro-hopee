@@ -1,5 +1,15 @@
 import { PlayerNumber } from '../types/game.types';
 
+export interface WinningLine {
+  row: number;
+  col: number;
+}
+
+export interface WinResult {
+  isWin: boolean;
+  winningLine?: WinningLine[];
+}
+
 export const checkWin = (
   board: number[][],
   row: number,
@@ -7,7 +17,7 @@ export const checkWin = (
   player: PlayerNumber,
   boardSize: number,
   blockTwoEnds: boolean = false
-): boolean => {
+): WinResult => {
   const directions = [
     [0, 1],   // horizontal
     [1, 0],   // vertical
@@ -98,10 +108,33 @@ export const checkWin = (
       }
 
       // If we reach here, it's a valid win
-      return true;
+      // Build winning line array from negEnd to posEnd
+      const winningLine: WinningLine[] = [];
+      const startRow = negEndRow;
+      const startCol = negEndCol;
+      const endRow = posEndRow;
+      const endCol = posEndCol;
+      
+      // Calculate direction
+      const dirRow = endRow > startRow ? 1 : endRow < startRow ? -1 : 0;
+      const dirCol = endCol > startCol ? 1 : endCol < startCol ? -1 : 0;
+      
+      // Add all cells in the winning line
+      let currentRow = startRow;
+      let currentCol = startCol;
+      while (true) {
+        winningLine.push({ row: currentRow, col: currentCol });
+        if (currentRow === endRow && currentCol === endCol) {
+          break;
+        }
+        currentRow += dirRow;
+        currentCol += dirCol;
+      }
+      
+      return { isWin: true, winningLine };
     }
   }
 
-  return false;
+  return { isWin: false };
 };
 

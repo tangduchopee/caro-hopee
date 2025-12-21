@@ -12,6 +12,7 @@ export interface IGameHistory extends Document {
   boardSize: number;
   board: number[][];
   winner: 1 | 2 | null | 'draw';
+  winningLine?: Array<{ row: number; col: number }>;
   score: {
     player1: number;
     player2: number;
@@ -82,6 +83,13 @@ const GameHistorySchema: Schema = new Schema({
     type: Schema.Types.Mixed,
     default: null,
   },
+  winningLine: {
+    type: [{
+      row: { type: Number, required: true },
+      col: { type: Number, required: true },
+    }],
+    default: undefined,
+  },
   score: {
     player1: {
       type: Number,
@@ -112,7 +120,7 @@ const GameHistorySchema: Schema = new Schema({
   },
   finishedAt: {
     type: Date,
-    required: true,
+    default: null, // Can be null if game was abandoned
     index: true,
   },
   createdAt: {

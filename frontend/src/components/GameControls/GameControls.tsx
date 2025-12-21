@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Box, Button, Dialog, DialogTitle, DialogContent, DialogActions, Typography, CircularProgress, Snackbar, Alert } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useGame } from '../../contexts/GameContext';
+import { logger } from '../../utils/logger';
 
 interface GameControlsProps {
   onLeaveGame?: () => Promise<void>;
@@ -16,13 +17,7 @@ const GameControls: React.FC<GameControlsProps> = ({ onLeaveGame }) => {
   const canStartGame = game?.gameStatus === 'waiting' && players.length === 2 && myPlayerNumber === 1;
   const showWinnerModal = game?.gameStatus === 'finished' && game.winner !== null;
   
-  // Debug logging - removed players array from dependency to avoid unnecessary re-renders
-  // players.length is sufficient to track changes
-  useEffect(() => {
-    if (game) {
-      console.log('GameControls - canStartGame:', canStartGame, 'gameStatus:', game.gameStatus, 'players.length:', players.length, 'myPlayerNumber:', myPlayerNumber);
-    }
-  }, [canStartGame, game, players.length, myPlayerNumber]);
+  // Removed debug logging to improve performance
 
   if (!game) {
     return null;
@@ -61,7 +56,7 @@ const GameControls: React.FC<GameControlsProps> = ({ onLeaveGame }) => {
         navigate('/');
       }
     } catch (error) {
-      console.error('Error leaving game:', error);
+      logger.error('Error leaving game:', error);
       // Still navigate even if there's an error
       if (!onLeaveGame) {
         navigate('/');

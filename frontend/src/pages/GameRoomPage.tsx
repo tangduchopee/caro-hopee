@@ -7,6 +7,8 @@ import GameBoard from '../components/GameBoard/GameBoard';
 import GameInfo from '../components/GameInfo/GameInfo';
 import GameControls from '../components/GameControls/GameControls';
 import RoomCodeDisplay from '../components/RoomCodeDisplay';
+import GameErrorBoundary from '../components/GameErrorBoundary';
+import { logger } from '../utils/logger';
 
 const GameRoomPage: React.FC = () => {
   const { roomId } = useParams<{ roomId: string }>();
@@ -73,7 +75,7 @@ const GameRoomPage: React.FC = () => {
       // Navigate to home after leaving
       navigate('/');
     } catch (error) {
-      console.error('Error leaving game:', error);
+      logger.error('Error leaving game:', error);
       // Still navigate even if there's an error
       navigate('/');
     }
@@ -85,7 +87,7 @@ const GameRoomPage: React.FC = () => {
       setIsLeaving(true);
       await handleLeaveGame();
     } catch (error) {
-      console.error('Error leaving game:', error);
+      logger.error('Error leaving game:', error);
     } finally {
       setIsLeaving(false);
     }
@@ -99,11 +101,7 @@ const GameRoomPage: React.FC = () => {
     pendingNavigation.current = null;
   };
   
-  // Debug logging - removed players array from dependency to avoid unnecessary re-renders
-  // players.length is sufficient to track changes
-  React.useEffect(() => {
-    console.log('GameRoomPage - isWaiting:', isWaiting, 'gameStatus:', game?.gameStatus, 'players.length:', players.length);
-  }, [isWaiting, game?.gameStatus, players.length]);
+  // Removed debug logging to improve performance
 
   useEffect(() => {
     if (!roomId) {
@@ -116,9 +114,9 @@ const GameRoomPage: React.FC = () => {
     const loadGame = async (): Promise<void> => {
       try {
         setLoading(true);
-        console.log('[GameRoomPage] Loading game with roomId:', roomId);
+        logger.log('[GameRoomPage] Loading game with roomId:', roomId);
         const gameData = await gameApi.getGame(roomId);
-        console.log('[GameRoomPage] Game loaded successfully:', gameData);
+        logger.log('[GameRoomPage] Game loaded successfully:', gameData);
         if (isMounted) {
           // Set game first, then join room
           setGame(gameData);
@@ -127,16 +125,16 @@ const GameRoomPage: React.FC = () => {
           setLoading(false);
         }
       } catch (error: any) {
-        console.error('[GameRoomPage] Failed to load game:', error);
+        logger.error('[GameRoomPage] Failed to load game:', error);
         // If game not found (404), it might have been deleted
         if (isMounted) {
           setLoading(false);
           if (error.response?.status === 404) {
-            console.log('[GameRoomPage] Game not found (404) - navigating to home');
+            logger.log('[GameRoomPage] Game not found (404) - navigating to home');
             navigate('/');
           } else {
-            console.log('[GameRoomPage] Error loading game - navigating to home');
-            navigate('/');
+            logger.log('[GameRoomPage] Error loading game - navigating to home');
+          navigate('/');
           }
         }
       }
@@ -169,7 +167,7 @@ const GameRoomPage: React.FC = () => {
     // 4. We're not currently loading
     // 5. Initial load has completed (to avoid navigating during initial mount)
     if (game === null && roomId && !hasLeftRef.current && !loading && initialLoadCompleteRef.current) {
-      console.log('[GameRoomPage] Game is null and initial load completed - navigating to home');
+      logger.log('[GameRoomPage] Game is null and initial load completed - navigating to home');
       navigate('/');
     }
   }, [game, roomId, navigate, loading]);
@@ -278,6 +276,11 @@ const GameRoomPage: React.FC = () => {
           background: 'linear-gradient(135deg, #f8fbff 0%, #ffffff 30%, #f0f9ff 100%)',
           position: 'relative',
           overflow: 'hidden',
+          // CSS containment to isolate layout calculations and prevent CLS
+          contain: 'layout style paint',
+          // Force compositor layer for smoother updates
+          transform: 'translateZ(0)',
+          // Static decorations - removed animations to prevent CLS
           '&::before': {
             content: '""',
             position: 'absolute',
@@ -287,11 +290,10 @@ const GameRoomPage: React.FC = () => {
             height: 300,
             borderRadius: '50%',
             background: 'radial-gradient(circle, rgba(126, 200, 227, 0.1) 0%, transparent 70%)',
-            animation: 'float 20s ease-in-out infinite',
-            '@keyframes float': {
-              '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
-              '50%': { transform: 'translate(-30px, -30px) scale(1.1)' },
-            },
+            // Compositor layer isolation - prevents pseudo-element from causing layout shifts
+            transform: 'translateZ(0)',
+            pointerEvents: 'none',
+            zIndex: 0,
           },
           '&::after': {
             content: '""',
@@ -302,11 +304,10 @@ const GameRoomPage: React.FC = () => {
             height: 400,
             borderRadius: '50%',
             background: 'radial-gradient(circle, rgba(168, 230, 207, 0.1) 0%, transparent 70%)',
-            animation: 'float 25s ease-in-out infinite reverse',
-            '@keyframes float': {
-              '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
-              '50%': { transform: 'translate(30px, 30px) scale(1.1)' },
-            },
+            // Compositor layer isolation - prevents pseudo-element from causing layout shifts
+            transform: 'translateZ(0)',
+            pointerEvents: 'none',
+            zIndex: 0,
           },
         }}
       >
@@ -347,19 +348,19 @@ const GameRoomPage: React.FC = () => {
 
         {/* Main Content Area - Board Only */}
         <Box
-          sx={{
-            position: 'relative',
+          sx={{ 
+            position: 'relative', 
             zIndex: 1,
             ml: { lg: '328px' }, // Margin for fixed left sidebar (280px + 48px gap)
             mr: { lg: '328px' }, // Margin for fixed right sidebar (280px + 48px gap)
-            display: 'flex',
+              display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
-            minHeight: 'calc(100vh - 40px)',
+              minHeight: 'calc(100vh - 40px)',
             py: { xs: 2, md: 3 },
             width: { lg: 'calc(100% - 656px)' }, // 328px * 2 for both sidebars
-          }}
-        >
+            }}
+          >
           {/* Game Board - Center, Large */}
           <Box
             sx={{
@@ -415,7 +416,9 @@ const GameRoomPage: React.FC = () => {
             ) : canStartGame ? (
               // Game is waiting but has 2 players - show board with Start Game button
               <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center', position: 'relative' }}>
-                <GameBoard />
+                <GameErrorBoundary roomId={roomId}>
+                  <GameBoard />
+                </GameErrorBoundary>
                 <>
                   {/* Semi-transparent overlay */}
                   <Box
@@ -518,7 +521,9 @@ const GameRoomPage: React.FC = () => {
             ) : (
               // Game is playing - show board normally
               <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center', position: 'relative' }}>
-                <GameBoard />
+                <GameErrorBoundary roomId={roomId}>
+                  <GameBoard />
+                </GameErrorBoundary>
               </Box>
             )}
           </Box>

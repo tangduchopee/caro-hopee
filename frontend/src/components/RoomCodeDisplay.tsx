@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Box, Typography, Paper, IconButton, Snackbar } from '@mui/material';
 import { ContentCopy, Check } from '@mui/icons-material';
+import { logger } from '../utils/logger';
 
 interface RoomCodeDisplayProps {
   roomCode: string;
@@ -33,7 +34,7 @@ const RoomCodeDisplay: React.FC<RoomCodeDisplayProps> = ({ roomCode, label = 'Ro
         timeoutRef.current = null;
       }, 2000);
     } catch (error) {
-      console.error('Failed to copy:', error);
+      logger.error('Failed to copy:', error);
     }
   };
 

@@ -40,16 +40,18 @@ export const authApi = {
 export const gameApi = {
   create: async (boardSize: number, rules: any): Promise<Game> => {
     try {
-      // Use getGuestId() from utils instead of localStorage
-      const { getGuestId } = await import('../utils/guestId');
-      const guestId = getGuestId();
-      console.log('[gameApi.create] Calling API with:', { boardSize, rules, guestId });
-      const response = await api.post('/games/create', { boardSize, rules, guestId });
-      console.log('[gameApi.create] Response received:', response.data);
-      return response.data;
+    // Use getGuestId() from utils instead of localStorage
+    const { getGuestId } = await import('../utils/guestId');
+    const guestId = getGuestId();
+      const { logger } = await import('../utils/logger');
+      logger.log('[gameApi.create] Calling API with:', { boardSize, rules, guestId });
+    const response = await api.post('/games/create', { boardSize, rules, guestId });
+      logger.log('[gameApi.create] Response received:', response.data);
+    return response.data;
     } catch (error: any) {
-      console.error('[gameApi.create] API call failed:', error);
-      console.error('[gameApi.create] Error details:', {
+      const { logger } = await import('../utils/logger');
+      logger.error('[gameApi.create] API call failed:', error);
+      logger.error('[gameApi.create] Error details:', {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status,
@@ -77,7 +79,7 @@ export const gameApi = {
     const response = await api.post(`/games/${roomId}/join`, { guestId });
     return response.data;
   },
-  leaveGame: async (roomId: string): Promise<{ message: string; gameDeleted: boolean }> => {
+  leaveGame: async (roomId: string): Promise<{ message: string; gameDeleted: boolean; gameData?: any }> => {
     // Use getGuestId() from utils instead of localStorage
     const { getGuestId } = await import('../utils/guestId');
     const guestId = getGuestId();
@@ -89,12 +91,31 @@ export const gameApi = {
     return response.data;
   },
   getGameHistory: async (): Promise<{ history: GameHistory[]; total: number }> => {
-    const { getGuestId } = await import('../utils/guestId');
-    const guestId = getGuestId();
-    console.log('[API] getGameHistory called with guestId:', guestId);
-    const response = await api.post('/games/history', { guestId });
-    console.log('[API] getGameHistory response:', response.data);
-    return response.data;
+    // Check if user is authenticated
+    const token = localStorage.getItem('token');
+    const isAuthenticated = !!token;
+    
+    if (isAuthenticated) {
+      // Authenticated user - get from API
+      try {
+        const response = await api.post('/games/history', {});
+        const { logger } = await import('../utils/logger');
+        logger.log('[API] getGameHistory (authenticated) response:', response.data);
+        return response.data;
+      } catch (error: any) {
+        const { logger } = await import('../utils/logger');
+        logger.error('[API] Failed to get game history from server:', error);
+        // Fallback to empty if API fails
+        return { history: [], total: 0 };
+      }
+    } else {
+      // Guest user - get from localStorage
+      const { getGuestHistory } = await import('../utils/guestHistory');
+      const history = getGuestHistory();
+      const { logger } = await import('../utils/logger');
+      logger.log('[API] getGameHistory (guest) from localStorage:', history.length, 'games');
+      return { history, total: history.length };
+    }
   },
 };
 

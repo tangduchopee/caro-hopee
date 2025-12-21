@@ -7,7 +7,7 @@ const router = Router();
 router.post('/create', createGame);
 router.get('/waiting', getWaitingGames);
 router.get('/code/:roomCode', getGameByCode);
-router.post('/history', getGameHistory);
+router.post('/history', authMiddleware, getGameHistory); // Require authentication for history
 router.get('/:roomId', getGame);
 router.post('/:roomId/join', joinGame);
 router.post('/:roomId/leave', leaveGame);

@@ -71,7 +71,7 @@ const checkBlockTwoEnds = (
         for (let i = 0; i < 4; i++) {
           const checkRow = startRow + dx * i;
           const checkCol = startCol + dy * i;
-          if (
+      if (
             checkRow >= 0 &&
             checkRow < game.boardSize &&
             checkCol >= 0 &&
@@ -79,11 +79,11 @@ const checkBlockTwoEnds = (
             game.board[checkRow][checkCol] === opponent
           ) {
             sequenceCount++;
-          } else {
-            break;
-          }
-        }
-        
+      } else {
+        break;
+      }
+    }
+
         // If we have exactly 4 consecutive opponent pieces
         if (sequenceCount === 4) {
           // Check if both ends are open (empty cells)
@@ -132,10 +132,10 @@ const checkBlockTwoEnds = (
                 game.board[otherEndRow][otherEndCol] === player;
               
               if (otherEndBlocked) {
-                return {
-                  valid: false,
+      return {
+        valid: false,
                   message: 'This move would block both ends of opponent\'s open 4 (block two ends rule)',
-                };
+      };
               }
             }
           }

@@ -19,7 +19,21 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   'room-joined': (data: { roomId: string; players: PlayerInfo[]; gameStatus?: string; currentPlayer?: PlayerNumber }) => void;
   'player-joined': (data: { player: PlayerInfo }) => void;
-  'player-left': (data: { playerId?: string; playerNumber?: number; roomId?: string; hostTransferred?: boolean; gameReset?: boolean }) => void;
+  'player-left': (data: { 
+    playerId?: string; 
+    playerNumber?: number; 
+    roomId?: string; 
+    hostTransferred?: boolean; 
+    gameReset?: boolean;
+    game?: {
+      player1: any;
+      player1GuestId: string | null;
+      player2: any;
+      player2GuestId: string | null;
+      gameStatus: string;
+      currentPlayer: number;
+    };
+  }) => void;
   'game-deleted': (data: { roomId: string }) => void;
   'move-made': (data: { move: GameMove | null; board: number[][]; currentPlayer: PlayerNumber }) => void;
   'move-validated': (data: { valid: boolean; message?: string }) => void;

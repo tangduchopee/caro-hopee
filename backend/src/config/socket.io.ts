@@ -1,6 +1,7 @@
 import { Server as SocketIOServer } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import { verifyToken } from '../utils/jwt';
+import { checkSocketRateLimit } from '../middleware/rateLimiter';
 
 export const setupSocketIO = (httpServer: HTTPServer): SocketIOServer => {
   const io = new SocketIOServer(httpServer, {
@@ -11,12 +12,23 @@ export const setupSocketIO = (httpServer: HTTPServer): SocketIOServer => {
     },
   });
 
+  // Socket rate limiting middleware (M4 fix: prevent connection spam)
+  io.use((socket, next) => {
+    const ip = socket.handshake.address || 'unknown';
+    const rateCheck = checkSocketRateLimit(ip);
+
+    if (!rateCheck.allowed) {
+      return next(new Error(`Rate limited. Retry after ${rateCheck.retryAfter}s`));
+    }
+
+    next();
+  });
+
   // Socket authentication middleware
   io.use((socket, next) => {
     const token = socket.handshake.auth.token;
-    
+
     if (!token) {
-      // Allow guest connections
       socket.data.isGuest = true;
       return next();
     }
@@ -28,7 +40,6 @@ export const setupSocketIO = (httpServer: HTTPServer): SocketIOServer => {
       socket.data.isGuest = false;
       next();
     } catch (error) {
-      // Allow guest connections even if token is invalid
       socket.data.isGuest = true;
       next();
     }

@@ -10,13 +10,6 @@ import User from '../models/User';
 
 export const createGame = async (req: Request, res: Response): Promise<void> => {
   try {
-    console.log('[createGame] Request received:', { 
-      body: req.body, 
-      hasAuth: !!req.headers.authorization,
-      boardSize: req.body?.boardSize,
-      guestId: req.body?.guestId 
-    });
-    
     const { boardSize = 15, rules = {}, guestId } = req.body;
     const authReq = req as AuthRequest;
     
@@ -28,28 +21,17 @@ export const createGame = async (req: Request, res: Response): Promise<void> => 
         const { verifyToken } = await import('../utils/jwt');
         const decoded = verifyToken(token);
         userId = decoded.userId;
-        console.log('[createGame] Authenticated user:', userId);
       }
     } catch (error) {
       // Token invalid or not provided - continue as guest
-      console.log('[createGame] No valid token provided, creating game as guest');
     }
     
     // Use userId from token or from authReq.user (fallback)
     const finalUserId = userId || authReq.user?.userId || null;
 
-    console.log('[createGame] Creating game with:', { 
-      boardSize, 
-      finalUserId, 
-      guestId, 
-      rules 
-    });
-
     const roomId = uuidv4();
     const roomCode = await generateRoomCode();
     const board = initializeBoard(boardSize);
-
-    console.log('[createGame] Generated roomId:', roomId, 'roomCode:', roomCode);
 
     const game = new Game({
       roomId,
@@ -68,9 +50,7 @@ export const createGame = async (req: Request, res: Response): Promise<void> => 
       gameStatus: 'waiting',
     });
 
-    console.log('[createGame] Saving game to database...');
     await game.save();
-    console.log('[createGame] Game saved successfully:', game.roomId);
 
     // Emit socket event to notify all users in lobby about new game
     // Get player1 username for the event
@@ -110,14 +90,10 @@ export const createGame = async (req: Request, res: Response): Promise<void> => 
       updatedAt: game.updatedAt.toISOString(),
       finishedAt: game.finishedAt?.toISOString() || null,
     });
-    
-    console.log('[createGame] Response sent successfully');
   } catch (error: any) {
-    console.error('[createGame] Error creating game:', error);
-    console.error('[createGame] Error stack:', error.stack);
-    res.status(500).json({ 
+    console.error('[createGame] Error:', error.message);
+    res.status(500).json({
       message: error.message || 'Failed to create game',
-      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
@@ -211,7 +187,6 @@ export const joinGame = async (req: Request, res: Response): Promise<void> => {
       }
     } catch (error) {
       // Token invalid or not provided - continue as guest
-      console.log('No valid token provided, joining game as guest');
     }
     
     // Use userId from token or from authReq.user (fallback)
@@ -281,7 +256,7 @@ export const joinGame = async (req: Request, res: Response): Promise<void> => {
       if (userIdToCheck) {
         game.player2 = userIdToCheck as any;
         game.player2GuestId = null; // Clear guestId if joining as authenticated user
-      } else {
+    } else {
         game.player2GuestId = guestId || null;
       }
     }
@@ -374,6 +349,7 @@ export const getWaitingGames = async (req: Request, res: Response): Promise<void
   try {
     // Get all active games (waiting with 1 player, waiting with 2 players, and playing)
     // Exclude finished and abandoned games
+    // Optimized: Use lean() for read performance, batch user lookups (fixes Issue #7)
     const games = await Game.find({
       gameStatus: { $in: ['waiting', 'playing'] },
       $or: [
@@ -384,8 +360,14 @@ export const getWaitingGames = async (req: Request, res: Response): Promise<void
       .sort({ createdAt: -1 })
       .limit(50)
       .select('roomId roomCode boardSize gameStatus player1 player2 player1GuestId player2GuestId createdAt')
-      .populate('player1', 'username')
-      .populate('player2', 'username');
+      .lean();
+
+    // Batch fetch all user IDs in a single query instead of N populate calls
+    const userIds = games.flatMap(g => [g.player1, g.player2].filter(Boolean));
+    const users = userIds.length > 0
+      ? await User.find({ _id: { $in: userIds } }).select('_id username').lean()
+      : [];
+    const userMap = new Map(users.map(u => [u._id.toString(), u.username]));
 
     // Format response with display status
     const formattedGames = games.map(game => {
@@ -413,20 +395,20 @@ export const getWaitingGames = async (req: Request, res: Response): Promise<void
         canJoin = true;
       }
 
-      // Get player1 username
+      // Get player1 username from userMap (batch fetched)
       let player1Username: string | null = null;
-      if (game.player1 && typeof game.player1 === 'object' && 'username' in game.player1) {
-        player1Username = (game.player1 as any).username || 'Player 1';
+      if (game.player1) {
+        player1Username = userMap.get(game.player1.toString()) || 'Player 1';
       } else if (game.player1GuestId) {
         player1Username = `Guest ${game.player1GuestId.slice(-6)}`;
       }
 
       return {
-        _id: game._id.toString(),
-        roomId: game.roomId,
-        roomCode: game.roomCode,
-        boardSize: game.boardSize,
-        gameStatus: game.gameStatus,
+      _id: game._id.toString(),
+      roomId: game.roomId,
+      roomCode: game.roomCode,
+      boardSize: game.boardSize,
+      gameStatus: game.gameStatus,
         displayStatus, // 'waiting' | 'ready' | 'playing'
         statusLabel, // Display text
         canJoin, // Whether others can join
@@ -434,7 +416,7 @@ export const getWaitingGames = async (req: Request, res: Response): Promise<void
         hasPlayer2,
         playerCount,
         player1Username,
-        createdAt: game.createdAt.toISOString(),
+      createdAt: game.createdAt.toISOString(),
       };
     });
 
@@ -450,41 +432,126 @@ export const leaveGame = async (req: Request, res: Response): Promise<void> => {
     const { guestId } = req.body;
     const authReq = req as AuthRequest;
     
+    // Try to get user from token (optional auth - allow both authenticated and guest)
+    // Similar to createGame, but don't reject if no token (guest users are allowed)
+    let userId: string | null = null;
+    try {
+      const token = req.headers.authorization?.split(' ')[1];
+      if (token) {
+        const { verifyToken } = await import('../utils/jwt');
+        const decoded = verifyToken(token);
+        userId = decoded.userId;
+      }
+    } catch (error) {
+      // Token invalid or not provided - continue as guest
+    }
+    
+    // Use userId from token or from authReq.user (fallback)
+    const finalUserId = userId || authReq.user?.userId || null;
+    
+    console.log(`[leaveGame] Request received - roomId: ${roomId}, guestId: ${guestId}, finalUserId: ${finalUserId}`);
+    
     const game = await Game.findOne({ roomId });
 
     if (!game) {
+      console.log(`[leaveGame] Game not found for roomId: ${roomId}`);
       res.status(404).json({ message: 'Game not found' });
       return;
     }
+
+    console.log(`[leaveGame] Game found - player1: ${game.player1?.toString() || game.player1GuestId || 'null'}, player2: ${game.player2?.toString() || game.player2GuestId || 'null'}`);
 
     // Determine which player is leaving
     let isPlayer1 = false;
     let isPlayer2 = false;
     
     // Check if authenticated user is player1 or player2
-    if (authReq.user?.userId) {
-      isPlayer1 = !!(game.player1 && game.player1.toString() === authReq.user.userId.toString());
-      isPlayer2 = !!(game.player2 && game.player2.toString() === authReq.user.userId.toString());
+    if (finalUserId) {
+      const userIdStr = finalUserId.toString();
+      const player1Str = game.player1 ? game.player1.toString() : null;
+      const player2Str = game.player2 ? game.player2.toString() : null;
+      
+      console.log(`[leaveGame] Checking authenticated user - userId: ${userIdStr}, player1: ${player1Str}, player2: ${player2Str}`);
+      
+      isPlayer1 = !!(player1Str && player1Str === userIdStr);
+      isPlayer2 = !!(player2Str && player2Str === userIdStr);
+      
+      console.log(`[leaveGame] Authenticated check - isPlayer1: ${isPlayer1}, isPlayer2: ${isPlayer2}`);
     }
     
     // Also check if guestId matches player1GuestId or player2GuestId
     if (guestId) {
+      console.log(`[leaveGame] Checking guestId - guestId: ${guestId}, player1GuestId: ${game.player1GuestId}, player2GuestId: ${game.player2GuestId}`);
+      
       if (game.player1GuestId && game.player1GuestId === guestId) {
         isPlayer1 = true;
+        console.log(`[leaveGame] Guest matched as player1`);
       }
       if (game.player2GuestId && game.player2GuestId === guestId) {
         isPlayer2 = true;
+        console.log(`[leaveGame] Guest matched as player2`);
       }
     }
 
+    console.log(`[leaveGame] Final check - isPlayer1: ${isPlayer1}, isPlayer2: ${isPlayer2}`);
+
     // If player is not in the game, return success (they're already not in it)
     if (!isPlayer1 && !isPlayer2) {
+      console.log(`[leaveGame] Player not found in game - finalUserId: ${finalUserId}, guestId: ${guestId}, game.player1: ${game.player1?.toString() || game.player1GuestId}, game.player2: ${game.player2?.toString() || game.player2GuestId}`);
       res.json({ message: 'Player not in game', gameDeleted: false });
       return;
     }
 
     // Check if game was finished before player left
     const wasFinished = game.gameStatus === 'finished';
+    
+    // Capture player data BEFORE removing (for history saving)
+    // IMPORTANT: Capture authenticated players (not guest IDs) for history
+    const player1Before = game.player1; // Authenticated user ID or null
+    const player2Before = game.player2; // Authenticated user ID or null
+    const player1GuestIdBefore = game.player1GuestId;
+    const player2GuestIdBefore = game.player2GuestId;
+    
+    // Determine if there are any authenticated players in the game (before removal)
+    const hasAuthenticatedPlayerBefore = !!(player1Before || player2Before);
+    
+    // Ensure history is saved if game finished (history should already be saved when game finished,
+    // but we check again here to be safe, especially if game finished but history save failed)
+    if (wasFinished && game.finishedAt && hasAuthenticatedPlayerBefore) {
+      const existingHistory = await GameHistory.findOne({ roomId: game.roomId });
+      
+      if (!existingHistory) {
+        // History not saved yet - save it now (fallback in case history wasn't saved when game finished)
+        console.log(`[leaveGame] History not found for finished game ${roomId}, saving now as fallback`);
+        const historyRecord = new GameHistory({
+          originalGameId: game._id.toString(),
+          roomId: game.roomId,
+          roomCode: game.roomCode,
+          gameType: game.gameType,
+          player1: player1Before, // Use captured data before removal (authenticated user ID or null)
+          player2: player2Before, // Use captured data before removal (authenticated user ID or null)
+          player1GuestId: null, // Don't save guest IDs to database
+          player2GuestId: null,
+          boardSize: game.boardSize,
+          board: game.board,
+          winner: game.winner,
+          winningLine: (game as any).winningLine,
+          score: game.score,
+          rules: game.rules,
+          finishedAt: game.finishedAt,
+          createdAt: game.createdAt,
+          savedAt: new Date(),
+        });
+        await historyRecord.save();
+        console.log(`[leaveGame] History saved (fallback) for roomId: ${roomId}, player1: ${player1Before}, player2: ${player2Before}`);
+
+        // Clean up old history for authenticated players
+        await cleanupOldHistory(player1Before, null, player2Before, null);
+      } else {
+        // History already saved - just cleanup
+        await cleanupOldHistory(player1Before, null, player2Before, null);
+      }
+    }
 
     // Check players BEFORE removing (to determine if we need host transfer)
     const hasPlayer1Before = !!(game.player1 || game.player1GuestId);
@@ -499,145 +566,165 @@ export const leaveGame = async (req: Request, res: Response): Promise<void> => {
       game.player2GuestId = null;
     }
 
-    // Check players AFTER removing (to determine final state)
-    const hasPlayer1After = !!(game.player1 || game.player1GuestId);
-    const hasPlayer2After = !!(game.player2 || game.player2GuestId);
-    const hasNoPlayers = !hasPlayer1After && !hasPlayer2After;
+    // Check players AFTER removing (before save) - this is the actual state after removal
+    const hasPlayer1AfterLocal = !!(game.player1 || game.player1GuestId);
+    const hasPlayer2AfterLocal = !!(game.player2 || game.player2GuestId);
+    const hasNoPlayersLocal = !hasPlayer1AfterLocal && !hasPlayer2AfterLocal;
+    
+    console.log(`[leaveGame] Player left - roomId: ${roomId}, isPlayer1: ${isPlayer1}, isPlayer2: ${isPlayer2}, wasFinished: ${wasFinished}, hasAuthenticatedPlayerBefore: ${hasAuthenticatedPlayerBefore}`);
+    console.log(`[leaveGame] Game state after removal (before save) - player1: ${game.player1 || game.player1GuestId || 'null'}, player2: ${game.player2 || game.player2GuestId || 'null'}`);
+    console.log(`[leaveGame] hasPlayer1AfterLocal: ${hasPlayer1AfterLocal}, hasPlayer2AfterLocal: ${hasPlayer2AfterLocal}, hasNoPlayersLocal: ${hasNoPlayersLocal}`);
 
-    if (hasNoPlayers) {
-      // Case 1: Game finished + cả 2 player rời → lưu vào history và xóa game
-      if (game.gameStatus === 'finished' && game.finishedAt) {
-        // Save to history before deleting
-        const historyRecord = new GameHistory({
-          originalGameId: game._id.toString(),
-          roomId: game.roomId,
-          roomCode: game.roomCode,
-          gameType: game.gameType,
-          player1: game.player1,
-          player2: game.player2,
-          player1GuestId: game.player1GuestId,
-          player2GuestId: game.player2GuestId,
-          boardSize: game.boardSize,
-          board: game.board,
-          winner: game.winner,
-          score: game.score,
-          rules: game.rules,
-          finishedAt: game.finishedAt,
-          createdAt: game.createdAt,
-          savedAt: new Date(),
-        });
-        await historyRecord.save();
-        
-        // Clean up old history (keep only last 20 for each player)
-        await cleanupOldHistory(game.player1, game.player1GuestId, game.player2, game.player2GuestId);
-        
-        // Delete the game to save space
-        await Game.deleteOne({ roomId });
-        
-        console.log(`[leaveGame] Game ${roomId} finished, saved to history and deleted`);
-        
-        // Emit socket event to notify other clients (if any)
-        io.to(roomId).emit('game-deleted', { roomId });
-        
-        res.json({ 
-          message: 'Game finished - saved to history and deleted', 
-          gameDeleted: true 
-        });
-        return;
-      } else {
-        // Case 3: Game chưa finished + cả 2 player rời → xóa game
-      await Game.deleteOne({ roomId });
+    // Save the game state first (with player removed)
+    await game.save();
+    
+    // Reload game from database to get the latest state (in case another player left concurrently)
+    const updatedGame = await Game.findOne({ roomId });
+    if (!updatedGame) {
+      // Game was already deleted (probably by the other player leaving)
+      console.log(`[leaveGame] Game ${roomId} already deleted, probably by other player`);
+      res.json({ 
+        message: 'Game already deleted', 
+        gameDeleted: true 
+      });
+      return;
+    }
+
+    // Check players AFTER removing (using reloaded game state) - double check
+    const hasPlayer1After = !!(updatedGame.player1 || updatedGame.player1GuestId);
+    const hasPlayer2After = !!(updatedGame.player2 || updatedGame.player2GuestId);
+    const hasNoPlayers = !hasPlayer1After && !hasPlayer2After;
+    
+    console.log(`[leaveGame] Game state after reload - player1: ${updatedGame.player1 || updatedGame.player1GuestId || 'null'}, player2: ${updatedGame.player2 || updatedGame.player2GuestId || 'null'}`);
+    console.log(`[leaveGame] hasPlayer1After: ${hasPlayer1After}, hasPlayer2After: ${hasPlayer2After}, hasNoPlayers: ${hasNoPlayers}`);
+    console.log(`[leaveGame] Raw values - player1: ${JSON.stringify(updatedGame.player1)}, player1GuestId: ${updatedGame.player1GuestId}, player2: ${JSON.stringify(updatedGame.player2)}, player2GuestId: ${updatedGame.player2GuestId}`);
+    
+    // Use the reloaded state for final check (more reliable for concurrent leaves)
+    // But if local check already shows no players, we can proceed
+    const finalHasNoPlayers = hasNoPlayers || hasNoPlayersLocal;
+
+    if (finalHasNoPlayers) {
+      // Both players left - delete game
+      // History should already be saved when game finished (or when first player left)
       
-      // Emit socket event to notify all clients in lobby (not just in room)
+      // Final check: if game finished and history not saved, try to save it one more time
+      if (updatedGame.gameStatus === 'finished' && updatedGame.finishedAt && hasAuthenticatedPlayerBefore) {
+        const existingHistory = await GameHistory.findOne({ roomId: updatedGame.roomId });
+        if (!existingHistory) {
+          console.warn(`[leaveGame] History not found for finished game ${roomId} when both players left. This should not happen if history was saved when game finished.`);
+        }
+      }
+      
+      // Delete the game
+      const deleteResult = await Game.deleteOne({ roomId });
+      console.log(`[leaveGame] Game deleted - roomId: ${roomId}, finalHasNoPlayers: ${finalHasNoPlayers}, hasNoPlayers: ${hasNoPlayers}, hasNoPlayersLocal: ${hasNoPlayersLocal}, wasFinished: ${wasFinished}, deleteResult.deletedCount: ${deleteResult.deletedCount}`);
+      
+      // Verify deletion
+      const verifyDeleted = await Game.findOne({ roomId });
+      if (verifyDeleted) {
+        console.error(`[leaveGame] ERROR: Game ${roomId} still exists after deleteOne! Attempting force delete...`);
+        await Game.deleteOne({ _id: verifyDeleted._id });
+      } else {
+        console.log(`[leaveGame] Game ${roomId} successfully deleted and verified`);
+      }
+
+      // Emit socket event to notify all clients
       io.emit('game-deleted', { roomId });
       
       res.json({ 
-        message: 'Game deleted - no players remaining', 
+        message: wasFinished ? 'Game finished - saved to history and deleted' : 'Game deleted - no players remaining', 
         gameDeleted: true 
       });
-        return;
-      }
+      return;
     } else {
+      // One player remaining - update the reloaded game
       let gameReset = false;
       let hostTransferred = false;
       
       // If player1 (host) left and player2 still exists AFTER removal, transfer host to player2
       if (isPlayer1 && hasPlayer2After) {
         // Transfer player2 to player1 (host transfer)
-        game.player1 = game.player2;
-        game.player1GuestId = game.player2GuestId;
-        game.player2 = null;
-        game.player2GuestId = null;
+        console.log(`[leaveGame] Host transfer: player2 (${updatedGame.player2 || updatedGame.player2GuestId}) becomes player1`);
+        updatedGame.player1 = updatedGame.player2;
+        updatedGame.player1GuestId = updatedGame.player2GuestId;
+        updatedGame.player2 = null;
+        updatedGame.player2GuestId = null;
         hostTransferred = true;
-        console.log(`[leaveGame] Host transferred: Player2 (${game.player1 || game.player1GuestId}) is now Player1`);
-        
+        console.log(`[leaveGame] Host transfer complete - new player1: ${updatedGame.player1 || updatedGame.player1GuestId}, player2: ${updatedGame.player2 || updatedGame.player2GuestId || 'null'}`);
+
         // Case 2: Game finished + 1 player rời → reset về waiting
         if (wasFinished) {
-          game.gameStatus = 'waiting';
-          game.winner = null;
-          game.finishedAt = null;
+          updatedGame.gameStatus = 'waiting';
+          updatedGame.winner = null;
+          updatedGame.finishedAt = null;
           // Reset board for new game
-          game.board = Array(game.boardSize)
+          updatedGame.board = Array(updatedGame.boardSize)
             .fill(null)
-            .map(() => Array(game.boardSize).fill(0));
-          game.currentPlayer = 1;
+            .map(() => Array(updatedGame.boardSize).fill(0));
+          updatedGame.currentPlayer = 1;
           gameReset = true;
-        } else if (game.gameStatus === 'playing') {
+        } else if (updatedGame.gameStatus === 'playing') {
           // Case 4: Game playing + 1 player rời → reset về waiting
-          game.gameStatus = 'waiting';
-          game.winner = null;
-          game.finishedAt = null;
+          updatedGame.gameStatus = 'waiting';
+          updatedGame.winner = null;
+          updatedGame.finishedAt = null;
           // Reset board for new game
-          game.board = Array(game.boardSize)
+          updatedGame.board = Array(updatedGame.boardSize)
             .fill(null)
-            .map(() => Array(game.boardSize).fill(0));
-          game.currentPlayer = 1;
+            .map(() => Array(updatedGame.boardSize).fill(0));
+          updatedGame.currentPlayer = 1;
           gameReset = true;
-        } else if (game.gameStatus === 'waiting') {
+        } else if (updatedGame.gameStatus === 'waiting') {
           // Keep as waiting so it shows in lobby
-          game.gameStatus = 'waiting';
+          updatedGame.gameStatus = 'waiting';
         }
       } else if (isPlayer2 && hasPlayer1After) {
         // Player2 left, player1 still there - just remove player2 (no host transfer needed)
         // Case 2: Game finished + 1 player rời → reset về waiting
         if (wasFinished) {
-          game.gameStatus = 'waiting';
-          game.winner = null;
-          game.finishedAt = null;
+          updatedGame.gameStatus = 'waiting';
+          updatedGame.winner = null;
+          updatedGame.finishedAt = null;
           // Reset board for new game
-          game.board = Array(game.boardSize)
+          updatedGame.board = Array(updatedGame.boardSize)
             .fill(null)
-            .map(() => Array(game.boardSize).fill(0));
-          game.currentPlayer = 1;
+            .map(() => Array(updatedGame.boardSize).fill(0));
+          updatedGame.currentPlayer = 1;
           gameReset = true;
-        } else if (game.gameStatus === 'playing') {
+        } else if (updatedGame.gameStatus === 'playing') {
           // Case 4: Game playing + 1 player rời → reset về waiting
-          game.gameStatus = 'waiting';
-          game.winner = null;
-          game.finishedAt = null;
+          updatedGame.gameStatus = 'waiting';
+          updatedGame.winner = null;
+          updatedGame.finishedAt = null;
           // Reset board for new game
-          game.board = Array(game.boardSize)
+          updatedGame.board = Array(updatedGame.boardSize)
             .fill(null)
-            .map(() => Array(game.boardSize).fill(0));
-          game.currentPlayer = 1;
+            .map(() => Array(updatedGame.boardSize).fill(0));
+          updatedGame.currentPlayer = 1;
           gameReset = true;
-        } else if (game.gameStatus === 'waiting') {
+        } else if (updatedGame.gameStatus === 'waiting') {
           // Explicitly set to waiting to ensure it shows in lobby
-          game.gameStatus = 'waiting';
+          updatedGame.gameStatus = 'waiting';
         }
       }
       
-      await game.save();
-      
-      console.log(`[leaveGame] Player left - isPlayer1: ${isPlayer1}, isPlayer2: ${isPlayer2}, hostTransferred: ${hostTransferred}, hasPlayer1After: ${hasPlayer1After}, hasPlayer2After: ${hasPlayer2After}`);
-      console.log(`[leaveGame] Game state after leave - player1: ${game.player1 || game.player1GuestId || 'null'}, player2: ${game.player2 || game.player2GuestId || 'null'}, gameStatus: ${game.gameStatus}`);
-      
+      await updatedGame.save();
+
       // Emit socket event to notify other players in room
+      // Include updated game state so frontend can update immediately
       io.to(roomId).emit('player-left', { 
         playerNumber: isPlayer1 ? 1 : 2,
         roomId,
         hostTransferred: hostTransferred, // Notify if host was transferred
         gameReset: gameReset, // Notify if game was reset from finished to waiting
+        game: {
+          player1: updatedGame.player1,
+          player1GuestId: updatedGame.player1GuestId,
+          player2: updatedGame.player2,
+          player2GuestId: updatedGame.player2GuestId,
+          gameStatus: updatedGame.gameStatus,
+          currentPlayer: updatedGame.currentPlayer,
+        },
       });
 
       // Emit socket event to lobby about game status update
@@ -645,7 +732,7 @@ export const leaveGame = async (req: Request, res: Response): Promise<void> => {
       const isFull = hasPlayer1After && hasPlayer2After;
       
       let displayStatus: 'waiting' | 'ready' | 'playing';
-      if (game.gameStatus === 'playing') {
+      if (updatedGame.gameStatus === 'playing') {
         displayStatus = 'playing';
       } else if (isFull) {
         displayStatus = 'ready';
@@ -654,9 +741,9 @@ export const leaveGame = async (req: Request, res: Response): Promise<void> => {
       }
 
       io.emit('game-status-updated', {
-        roomId: game.roomId,
-        roomCode: game.roomCode,
-        gameStatus: game.gameStatus,
+        roomId: updatedGame.roomId,
+        roomCode: updatedGame.roomCode,
+        gameStatus: updatedGame.gameStatus,
         displayStatus,
         playerCount,
         isFull,
@@ -686,51 +773,36 @@ const cleanupOldHistory = async (
   player2GuestId: string | null
 ): Promise<void> => {
   try {
-    // Clean up for player1
+    // Only cleanup for authenticated users (not guests)
+    // Guest history is handled on frontend with localStorage
+    
+    // Clean up for player1 (authenticated only)
     if (player1) {
       const player1History = await GameHistory.find({ player1 })
         .sort({ finishedAt: -1 })
         .select('_id')
         .lean();
-      if (player1History.length > 20) {
-        const idsToDelete = player1History.slice(20).map(h => h._id);
+      // Keep last 50 games for authenticated users (more than guest's 20)
+      if (player1History.length > 50) {
+        const idsToDelete = player1History.slice(50).map(h => h._id);
         await GameHistory.deleteMany({ _id: { $in: idsToDelete } });
-        console.log(`[cleanupOldHistory] Deleted ${idsToDelete.length} old history records for player1`);
-      }
-    } else if (player1GuestId) {
-      const player1History = await GameHistory.find({ player1GuestId })
-        .sort({ finishedAt: -1 })
-        .select('_id')
-        .lean();
-      if (player1History.length > 20) {
-        const idsToDelete = player1History.slice(20).map(h => h._id);
-        await GameHistory.deleteMany({ _id: { $in: idsToDelete } });
-        console.log(`[cleanupOldHistory] Deleted ${idsToDelete.length} old history records for player1GuestId`);
       }
     }
+    // Note: No cleanup for player1GuestId - guest history is not saved to DB
     
-    // Clean up for player2
+    // Clean up for player2 (authenticated only)
     if (player2) {
       const player2History = await GameHistory.find({ player2 })
         .sort({ finishedAt: -1 })
         .select('_id')
         .lean();
-      if (player2History.length > 20) {
-        const idsToDelete = player2History.slice(20).map(h => h._id);
+      // Keep last 50 games for authenticated users (more than guest's 20)
+      if (player2History.length > 50) {
+        const idsToDelete = player2History.slice(50).map(h => h._id);
         await GameHistory.deleteMany({ _id: { $in: idsToDelete } });
-        console.log(`[cleanupOldHistory] Deleted ${idsToDelete.length} old history records for player2`);
-      }
-    } else if (player2GuestId) {
-      const player2History = await GameHistory.find({ player2GuestId })
-        .sort({ finishedAt: -1 })
-        .select('_id')
-        .lean();
-      if (player2History.length > 20) {
-        const idsToDelete = player2History.slice(20).map(h => h._id);
-        await GameHistory.deleteMany({ _id: { $in: idsToDelete } });
-        console.log(`[cleanupOldHistory] Deleted ${idsToDelete.length} old history records for player2GuestId`);
       }
     }
+    // Note: No cleanup for player2GuestId - guest history is not saved to DB
   } catch (error: any) {
     console.error('[cleanupOldHistory] Error cleaning up old history:', error);
     // Don't throw - this is cleanup, shouldn't block the main operation
@@ -741,60 +813,88 @@ export const getGameHistory = async (req: Request, res: Response): Promise<void>
   try {
     const authReq = req as AuthRequest;
     const userId = authReq.user?.userId;
-    const { guestId } = req.body;
-    
-    console.log(`[getGameHistory] Request received - userId: ${userId}, guestId: ${guestId}`);
-    
-    if (!userId && !guestId) {
-      res.status(401).json({ message: 'Unauthorized - Please provide userId or guestId' });
+
+    // Only return history for authenticated users
+    // Guest history should be retrieved from localStorage on frontend
+    if (!userId) {
+      console.log(`[getGameHistory] No userId, returning empty history`);
+      res.json({ history: [], total: 0 });
       return;
     }
 
-    // Build query to find finished games in history where user participated
-    const query: any = {};
+    console.log(`[getGameHistory] Querying history for userId: ${userId}, type: ${typeof userId}`);
 
-    // Add user filter - check both authenticated user and guest
-    if (userId) {
-      query.$or = [
-        { player1: userId },
-        { player2: userId },
-      ];
-    }
-    if (guestId) {
-      if (query.$or) {
-        query.$or.push(
-          { player1GuestId: guestId },
-          { player2GuestId: guestId }
-        );
-      } else {
-        query.$or = [
-          { player1GuestId: guestId },
-          { player2GuestId: guestId },
-        ];
-      }
-    }
+    // Build query to find finished games in history where authenticated user participated
+    // Convert userId to ObjectId - userId from auth middleware is string
+    // Use String() to ensure we have a string, then convert to ObjectId
+    const userIdStr = String(userId);
+    const userIdObj = new mongoose.Types.ObjectId(userIdStr);
 
-    // Get last 20 finished games from history
-    console.log(`[getGameHistory] Query:`, JSON.stringify(query, null, 2));
-    const games = await GameHistory.find(query)
+    console.log(`[getGameHistory] Converted userId to ObjectId: ${userIdObj.toString()}`);
+
+    // Try query with ObjectId first
+    let query: any = {
+      $or: [
+        { player1: userIdObj },
+        { player2: userIdObj },
+      ],
+    };
+
+    console.log(`[getGameHistory] Query with ObjectId:`, JSON.stringify({
+      $or: [
+        { player1: userIdObj.toString() },
+        { player2: userIdObj.toString() },
+      ],
+    }, null, 2));
+
+    // Get last 50 finished games from history
+    let games = await GameHistory.find(query)
       .sort({ finishedAt: -1 })
-      .limit(20)
-      .select('roomId roomCode boardSize board winner finishedAt createdAt player1 player2 player1GuestId player2GuestId score')
+      .limit(50)
+      .select('roomId roomCode boardSize board winner winningLine finishedAt createdAt player1 player2 score')
       .populate('player1', 'username')
       .populate('player2', 'username')
       .lean();
-    
-    console.log(`[getGameHistory] Found ${games.length} finished games in history`);
+
+    console.log(`[getGameHistory] Found ${games.length} games with ObjectId query`);
+
+    // If no results, try with string format as fallback
+    if (games.length === 0) {
+      console.log(`[getGameHistory] No results with ObjectId, trying string format...`);
+      const userIdStr = userId.toString();
+      query = {
+        $or: [
+          { player1: userIdStr },
+          { player2: userIdStr },
+        ],
+      };
+      games = await GameHistory.find(query)
+        .sort({ finishedAt: -1 })
+        .limit(50)
+        .select('roomId roomCode boardSize board winner winningLine finishedAt createdAt player1 player2 score')
+        .populate('player1', 'username')
+        .populate('player2', 'username')
+        .lean();
+      console.log(`[getGameHistory] Found ${games.length} games with string query`);
+    }
+
+    // Debug: Check all history records to see what player1/player2 values look like
+    const allHistory = await GameHistory.find({}).limit(5).select('player1 player2 roomId').lean();
+    console.log(`[getGameHistory] Sample history records:`, JSON.stringify(allHistory.map(h => ({
+      roomId: h.roomId,
+      player1: h.player1?.toString(),
+      player2: h.player2?.toString(),
+      player1Type: typeof h.player1,
+      player2Type: typeof h.player2,
+    })), null, 2));
+
+    console.log(`[getGameHistory] Final result: Found ${games.length} games in history for userId: ${userId}`);
 
     // Format response with result for current user
     const history = games.map(game => {
-      // Determine if current user is player1 or player2
-      const isPlayer1 = userId 
-        ? game.player1 && (game.player1 as any)._id?.toString() === userId.toString()
-        : game.player1GuestId === guestId;
-      const isPlayer2 = userId
-        ? game.player2 && (game.player2 as any)._id?.toString() === userId.toString()
-        : game.player2GuestId === guestId;
+      // Determine if current user is player1 or player2 (only authenticated users at this point)
+      const isPlayer1 = game.player1 && (game.player1 as any)._id?.toString() === userId.toString();
+      const isPlayer2 = game.player2 && (game.player2 as any)._id?.toString() === userId.toString();
 
       // Determine result
       let result: 'win' | 'loss' | 'draw' = 'draw';
@@ -811,13 +911,9 @@ export const getGameHistory = async (req: Request, res: Response): Promise<void>
       // Get opponent info
       let opponentUsername = 'Unknown';
       if (isPlayer1 && game.player2) {
-        opponentUsername = (game.player2 as any).username || `Guest ${game.player2GuestId?.slice(-6) || ''}`;
+        opponentUsername = (game.player2 as any).username || 'Guest';
       } else if (isPlayer2 && game.player1) {
-        opponentUsername = (game.player1 as any).username || `Guest ${game.player1GuestId?.slice(-6) || ''}`;
-      } else if (isPlayer1 && game.player2GuestId) {
-        opponentUsername = `Guest ${game.player2GuestId.slice(-6)}`;
-      } else if (isPlayer2 && game.player1GuestId) {
-        opponentUsername = `Guest ${game.player1GuestId.slice(-6)}`;
+        opponentUsername = (game.player1 as any).username || 'Guest';
       }
 
       return {
@@ -827,6 +923,7 @@ export const getGameHistory = async (req: Request, res: Response): Promise<void>
         boardSize: game.boardSize,
         board: game.board,
         winner: game.winner,
+        winningLine: game.winningLine,
         result, // 'win' | 'loss' | 'draw'
         opponentUsername,
         finishedAt: game.finishedAt?.toISOString() || null,

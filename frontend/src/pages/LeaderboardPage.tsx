@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Container, Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, Tab, CircularProgress } from '@mui/material';
 import { leaderboardApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { logger } from '../utils/logger';
 
 interface LeaderboardEntry {
   rank: number;
@@ -36,7 +37,7 @@ const LeaderboardPage: React.FC = () => {
       const data = await leaderboardApi.getLeaderboard(gameId, period, 50, 0);
       setLeaderboard(data);
     } catch (error) {
-      console.error('Failed to load leaderboard:', error);
+      logger.error('Failed to load leaderboard:', error);
     } finally {
       setLoading(false);
     }
@@ -48,7 +49,7 @@ const LeaderboardPage: React.FC = () => {
       const rankData = await leaderboardApi.getUserRank(gameId, user._id, period);
       setUserRank(rankData);
     } catch (error) {
-      console.error('Failed to load user rank:', error);
+      logger.error('Failed to load user rank:', error);
     }
   };
 
