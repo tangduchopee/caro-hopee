@@ -6,8 +6,16 @@ class SocketService {
   private socket: Socket<ServerToClientEvents, ClientToServerEvents> | null = null;
 
   connect(token?: string): void {
+    // If socket already exists and is connected, don't reconnect
     if (this.socket?.connected) {
       return;
+    }
+
+    // If socket exists but not connected, disconnect and remove listeners first
+    if (this.socket) {
+      this.socket.removeAllListeners();
+      this.socket.disconnect();
+      this.socket = null;
     }
 
     this.socket = io(SOCKET_URL, {
@@ -17,6 +25,7 @@ class SocketService {
       transports: ['websocket'],
     });
 
+    // Add listeners only once
     this.socket.on('connect', () => {
       console.log('Socket connected:', this.socket?.id);
     });

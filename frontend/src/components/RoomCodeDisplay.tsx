@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Box, Typography, Paper, IconButton, Snackbar } from '@mui/material';
 import { ContentCopy, Check } from '@mui/icons-material';
 
@@ -9,12 +9,29 @@ interface RoomCodeDisplayProps {
 
 const RoomCodeDisplay: React.FC<RoomCodeDisplayProps> = ({ roomCode, label = 'Room Code' }) => {
   const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleCopy = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(roomCode);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      // Clear existing timeout if any
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      timeoutRef.current = setTimeout(() => {
+        setCopied(false);
+        timeoutRef.current = null;
+      }, 2000);
     } catch (error) {
       console.error('Failed to copy:', error);
     }

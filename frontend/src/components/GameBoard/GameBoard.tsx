@@ -75,7 +75,7 @@ const GameBoard: React.FC = () => {
         cancelAnimationFrame(rafId);
       }
     };
-  }, [game]);
+  }, [game]); // Add game as dependency since it's used in updateCellSize
 
   if (!game) {
     return <div>No game loaded</div>;

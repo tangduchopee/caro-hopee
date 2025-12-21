@@ -16,12 +16,13 @@ const GameControls: React.FC<GameControlsProps> = ({ onLeaveGame }) => {
   const canStartGame = game?.gameStatus === 'waiting' && players.length === 2 && myPlayerNumber === 1;
   const showWinnerModal = game?.gameStatus === 'finished' && game.winner !== null;
   
-  // Debug logging
+  // Debug logging - removed players array from dependency to avoid unnecessary re-renders
+  // players.length is sufficient to track changes
   useEffect(() => {
     if (game) {
-      console.log('GameControls - canStartGame:', canStartGame, 'gameStatus:', game.gameStatus, 'players.length:', players.length, 'myPlayerNumber:', myPlayerNumber, 'players:', players);
+      console.log('GameControls - canStartGame:', canStartGame, 'gameStatus:', game.gameStatus, 'players.length:', players.length, 'myPlayerNumber:', myPlayerNumber);
     }
-  }, [canStartGame, game, players.length, myPlayerNumber, players]);
+  }, [canStartGame, game, players.length, myPlayerNumber]);
 
   if (!game) {
     return null;

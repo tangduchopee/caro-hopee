@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Box, 
   Container, 
@@ -28,11 +28,14 @@ import MenuIcon from '@mui/icons-material/Menu';
 import PersonIcon from '@mui/icons-material/Person';
 import LeaderboardIcon from '@mui/icons-material/Leaderboard';
 import LoginIcon from '@mui/icons-material/Login';
+import HistoryIcon from '@mui/icons-material/History';
 import { useNavigate, Link } from 'react-router-dom';
 import { gameApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { BOARD_SIZES, DEFAULT_BOARD_SIZE } from '../utils/constants';
 import { validateRoomCode, formatRoomCode } from '../utils/roomCode';
+import HistoryModal from '../components/HistoryModal/HistoryModal';
+import { socketService } from '../services/socketService';
 
 interface WaitingGame {
   _id: string;
@@ -40,8 +43,12 @@ interface WaitingGame {
   roomCode: string;
   boardSize: number;
   gameStatus: string;
+  displayStatus?: 'waiting' | 'ready' | 'playing';
+  statusLabel?: string;
+  canJoin?: boolean;
   hasPlayer1: boolean;
   hasPlayer2: boolean;
+  playerCount?: number;
   player1Username: string | null;
   createdAt: string;
 }
@@ -82,9 +89,69 @@ const HomePage: React.FC = () => {
   const [loadingGames, setLoadingGames] = useState(true);
   const [joiningGameId, setJoiningGameId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+
+  // Track mounted games to only animate new ones
+  const mountedGamesRef = useRef<Set<string>>(new Set());
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Smart merge function - chỉ update phần thay đổi, không replace toàn bộ array
+  const smartMergeGames = useCallback((newGames: WaitingGame[], currentGames: WaitingGame[]): WaitingGame[] => {
+    const gameMap = new Map<string, WaitingGame>();
+    
+    // Add all current games to map
+    currentGames.forEach(game => {
+      gameMap.set(game.roomId, game);
+    });
+    
+    // Track which games are new (for animation)
+    const newGameIds = new Set<string>();
+    
+    // Update or add new games
+    newGames.forEach(newGame => {
+      const existing = gameMap.get(newGame.roomId);
+      if (existing) {
+        // Only update if something actually changed
+        const hasChanged = 
+          existing.gameStatus !== newGame.gameStatus ||
+          existing.displayStatus !== newGame.displayStatus ||
+          existing.statusLabel !== newGame.statusLabel ||
+          existing.playerCount !== newGame.playerCount ||
+          existing.canJoin !== newGame.canJoin;
+        
+        if (hasChanged) {
+          gameMap.set(newGame.roomId, newGame);
+        }
+      } else {
+        // New game - add it
+        gameMap.set(newGame.roomId, newGame);
+        newGameIds.add(newGame.roomId);
+      }
+    });
+    
+    // Remove games that no longer exist
+    const currentRoomIds = new Set(currentGames.map(g => g.roomId));
+    const newRoomIds = new Set(newGames.map(g => g.roomId));
+    newRoomIds.forEach(roomId => {
+      if (!currentRoomIds.has(roomId)) {
+        mountedGamesRef.current.delete(roomId);
+      }
+    });
+    
+    // Mark new games as mounted
+    newGameIds.forEach(roomId => {
+      mountedGamesRef.current.add(roomId);
+    });
+    
+    // Sort by createdAt (newest first)
+    return Array.from(gameMap.values()).sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, []);
 
   const handleCreateGame = async (): Promise<void> => {
     try {
+      console.log('[HomePage] Creating game with:', { boardSize, blockTwoEnds });
       const game = await gameApi.create(boardSize, {
         blockTwoEnds,
         allowUndo: true,
@@ -92,10 +159,18 @@ const HomePage: React.FC = () => {
         timeLimit: null,
       });
 
+      console.log('[HomePage] Game created successfully:', game.roomId);
       navigate(`/game/${game.roomId}`);
-    } catch (error) {
-      console.error('Failed to create game:', error);
-      alert('Failed to create game');
+    } catch (error: any) {
+      console.error('[HomePage] Failed to create game:', error);
+      console.error('[HomePage] Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        stack: error.stack
+      });
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to create game. Please try again.';
+      alert(`Failed to create game: ${errorMessage}`);
     }
   };
 
@@ -135,23 +210,79 @@ const HomePage: React.FC = () => {
     setJoinError('');
   };
 
-  const loadWaitingGames = async (): Promise<void> => {
+  const loadWaitingGames = async (silent: boolean = false): Promise<void> => {
     try {
-      setLoadingGames(true);
+      if (!silent) {
+        setLoadingGames(true);
+      }
       const games = await gameApi.getWaitingGames();
-      setWaitingGames(games);
+      
+      // Use smart merge instead of direct set
+      setWaitingGames(prev => smartMergeGames(games, prev));
     } catch (error) {
       console.error('Failed to load waiting games:', error);
     } finally {
-      setLoadingGames(false);
+      if (!silent) {
+        setLoadingGames(false);
+      }
     }
   };
 
   useEffect(() => {
+    // Initial load
     loadWaitingGames();
-    const interval = setInterval(loadWaitingGames, 5000);
-    return () => clearInterval(interval);
-  }, []);
+    
+    // Fallback interval - tăng lên 30s (chỉ dùng khi socket không hoạt động)
+    const interval = setInterval(() => loadWaitingGames(true), 30000);
+    
+    // Socket.IO listeners for real-time updates
+    const socket = socketService.getSocket();
+    if (socket) {
+      const handleGameCreated = () => {
+        console.log('[HomePage] Game created event received');
+        loadWaitingGames(true); // Silent update - không hiển thị loading
+      };
+      
+      const handleGameStatusUpdated = () => {
+        console.log('[HomePage] Game status updated event received');
+        loadWaitingGames(true); // Silent update
+      };
+      
+      const handleGameDeleted = (data: { roomId: string }) => {
+        console.log('[HomePage] Game deleted event received:', data.roomId);
+        // Remove game from list immediately without API call
+        setWaitingGames(prev => {
+          const filtered = prev.filter(game => game.roomId !== data.roomId);
+          // Also remove from mounted games ref
+          mountedGamesRef.current.delete(data.roomId);
+          return filtered;
+        });
+      };
+      
+      socket.on('game-created', handleGameCreated);
+      socket.on('game-status-updated', handleGameStatusUpdated);
+      socket.on('game-deleted', handleGameDeleted);
+      
+      return () => {
+        clearInterval(interval);
+        if (socket) {
+          socket.off('game-created', handleGameCreated);
+          socket.off('game-status-updated', handleGameStatusUpdated);
+          socket.off('game-deleted', handleGameDeleted);
+        }
+        if (updateTimeoutRef.current) {
+          clearTimeout(updateTimeoutRef.current);
+        }
+      };
+    }
+    
+    return () => {
+      clearInterval(interval);
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
+    };
+  }, [smartMergeGames]);
 
   const handleQuickJoin = async (game: WaitingGame): Promise<void> => {
     setJoiningGameId(game.roomId);
@@ -428,6 +559,28 @@ const HomePage: React.FC = () => {
                 Leaderboard
               </Button>
               <Button
+                onClick={() => setHistoryModalOpen(true)}
+                fullWidth
+                startIcon={<HistoryIcon />}
+                sx={{
+                  mb: 1.5,
+                  py: 1.5,
+                  borderRadius: 2.5,
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  fontSize: '0.9rem',
+                  background: 'linear-gradient(135deg, rgba(126, 200, 227, 0.1) 0%, rgba(168, 230, 207, 0.1) 100%)',
+                  border: '1px solid rgba(126, 200, 227, 0.3)',
+                  color: '#2c3e50',
+                  '&:hover': {
+                    background: 'linear-gradient(135deg, rgba(126, 200, 227, 0.2) 0%, rgba(168, 230, 207, 0.2) 100%)',
+                    borderColor: 'rgba(126, 200, 227, 0.5)',
+                  },
+                }}
+              >
+                History
+              </Button>
+              <Button
                 onClick={logout}
                 fullWidth
                 sx={{
@@ -448,28 +601,52 @@ const HomePage: React.FC = () => {
               </Button>
             </>
           ) : (
-            <Button
-              component={Link}
-              to="/login"
-              fullWidth
-              startIcon={<LoginIcon />}
-              sx={{
-                py: 1.75,
-                borderRadius: 2.5,
-                textTransform: 'none',
-                fontWeight: 700,
-                fontSize: '0.95rem',
-                background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
-                color: '#ffffff',
-                boxShadow: '0 4px 12px rgba(126, 200, 227, 0.3)',
-                '&:hover': {
-                  background: 'linear-gradient(135deg, #5ba8c7 0%, #88d6b7 100%)',
-                  boxShadow: '0 6px 16px rgba(126, 200, 227, 0.4)',
-                },
-              }}
-            >
-              Login / Register
-            </Button>
+            <>
+              <Button
+                onClick={() => setHistoryModalOpen(true)}
+                fullWidth
+                startIcon={<HistoryIcon />}
+                sx={{
+                  mb: 1.5,
+                  py: 1.5,
+                  borderRadius: 2.5,
+                  textTransform: 'none',
+                  fontWeight: 600,
+                  fontSize: '0.9rem',
+                  background: 'linear-gradient(135deg, rgba(126, 200, 227, 0.1) 0%, rgba(168, 230, 207, 0.1) 100%)',
+                  border: '1px solid rgba(126, 200, 227, 0.3)',
+                  color: '#2c3e50',
+                  '&:hover': {
+                    background: 'linear-gradient(135deg, rgba(126, 200, 227, 0.2) 0%, rgba(168, 230, 207, 0.2) 100%)',
+                    borderColor: 'rgba(126, 200, 227, 0.5)',
+                  },
+                }}
+              >
+                History
+              </Button>
+              <Button
+                component={Link}
+                to="/login"
+                fullWidth
+                startIcon={<LoginIcon />}
+                sx={{
+                  py: 1.75,
+                  borderRadius: 2.5,
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  fontSize: '0.95rem',
+                  background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
+                  color: '#ffffff',
+                  boxShadow: '0 4px 12px rgba(126, 200, 227, 0.3)',
+                  '&:hover': {
+                    background: 'linear-gradient(135deg, #5ba8c7 0%, #88d6b7 100%)',
+                    boxShadow: '0 6px 16px rgba(126, 200, 227, 0.4)',
+                  },
+                }}
+              >
+                Login / Register
+              </Button>
+            </>
           )}
         </Box>
       </Drawer>
@@ -990,28 +1167,36 @@ const HomePage: React.FC = () => {
                     gap: 2.5,
                   }}
                 >
-                  {waitingGames.map((game, index) => (
-                    <Fade in timeout={1400 + index * 100} key={game._id}>
+                  {waitingGames.map((game, index) => {
+                    // Chỉ animate khi game mới được mount lần đầu
+                    const isNewGame = !mountedGamesRef.current.has(game.roomId);
+                    return (
+                    <Fade in timeout={isNewGame ? 400 : 0} key={game.roomId}>
                       <Paper
                         elevation={0}
                         sx={{
                           p: 3,
                           bgcolor: 'rgba(255, 255, 255, 0.8)',
                           backdropFilter: 'blur(8px)',
-                    WebkitBackdropFilter: 'blur(8px)',
-                    willChange: 'transform',
+                          WebkitBackdropFilter: 'blur(8px)',
+                          willChange: 'transform',
                           border: '1px solid rgba(126, 200, 227, 0.2)',
                           borderRadius: 3,
                           boxShadow: '0 4px 16px rgba(126, 200, 227, 0.1)',
                           transition: 'all 0.3s ease',
-                          cursor: 'pointer',
-                          '&:hover': {
+                          cursor: game.canJoin === false ? 'not-allowed' : 'pointer',
+                          opacity: game.canJoin === false ? 0.7 : 1,
+                          '&:hover': game.canJoin === false ? {} : {
                             boxShadow: '0 8px 24px rgba(126, 200, 227, 0.2)',
                             transform: 'translateY(-4px)',
                             borderColor: 'rgba(126, 200, 227, 0.4)',
                           },
                         }}
-                        onClick={() => handleQuickJoin(game)}
+                        onClick={() => {
+                          if (game.canJoin !== false) {
+                            handleQuickJoin(game);
+                          }
+                        }}
                       >
                         <Box sx={{ mb: 2.5 }}>
                           <Typography
@@ -1043,14 +1228,30 @@ const HomePage: React.FC = () => {
                               }}
                             />
                             <Chip
-                              label={game.hasPlayer1 && !game.hasPlayer2 ? '1/2 Players' : 'Waiting'}
+                              label={game.statusLabel || (game.hasPlayer1 && !game.hasPlayer2 ? '1/2 Players' : 'Waiting')}
                               size="small"
                               sx={{
-                                bgcolor: 'rgba(168, 230, 207, 0.15)',
-                                color: '#a8e6cf',
-                                fontWeight: 600,
+                                bgcolor: 
+                                  game.displayStatus === 'playing' 
+                                    ? 'rgba(255, 152, 0, 0.2)' // Orange for playing
+                                    : game.displayStatus === 'ready'
+                                    ? 'rgba(76, 175, 80, 0.2)' // Green for ready
+                                    : 'rgba(33, 150, 243, 0.2)', // Blue for waiting
+                                color: 
+                                  game.displayStatus === 'playing'
+                                    ? '#ff9800' // Orange
+                                    : game.displayStatus === 'ready'
+                                    ? '#4caf50' // Green
+                                    : '#2196f3', // Blue
+                                fontWeight: 700,
                                 fontSize: '0.75rem',
                                 height: 24,
+                                border: 
+                                  game.displayStatus === 'playing'
+                                    ? '1px solid rgba(255, 152, 0, 0.3)'
+                                    : game.displayStatus === 'ready'
+                                    ? '1px solid rgba(76, 175, 80, 0.3)'
+                                    : '1px solid rgba(33, 150, 243, 0.3)',
                               }}
                             />
                           </Box>
@@ -1063,7 +1264,7 @@ const HomePage: React.FC = () => {
                         <Button
                           variant="contained"
                           fullWidth
-                          disabled={joiningGameId === game.roomId}
+                          disabled={joiningGameId === game.roomId || game.canJoin === false}
                           onClick={(e) => {
                             e.stopPropagation();
                             handleQuickJoin(game);
@@ -1074,9 +1275,13 @@ const HomePage: React.FC = () => {
                             textTransform: 'none',
                             fontWeight: 600,
                             fontSize: '0.9rem',
-                            background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
-                            boxShadow: '0 4px 12px rgba(126, 200, 227, 0.3)',
-                            '&:hover': {
+                            background: game.canJoin === false 
+                              ? 'linear-gradient(135deg, #9e9e9e 0%, #757575 100%)'
+                              : 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
+                            boxShadow: game.canJoin === false
+                              ? 'none'
+                              : '0 4px 12px rgba(126, 200, 227, 0.3)',
+                            '&:hover': game.canJoin === false ? {} : {
                               background: 'linear-gradient(135deg, #5ba8c7 0%, #88d6b7 100%)',
                               boxShadow: '0 6px 16px rgba(126, 200, 227, 0.4)',
                             },
@@ -1087,19 +1292,25 @@ const HomePage: React.FC = () => {
                               <CircularProgress size={16} sx={{ mr: 1, color: '#ffffff' }} />
                               Joining...
                             </>
+                          ) : game.canJoin === false ? (
+                            game.displayStatus === 'playing' ? 'Playing...' : 'Full (2/2)'
                           ) : (
                             'Join Game'
                           )}
                         </Button>
                       </Paper>
                     </Fade>
-                  ))}
+                    );
+                  })}
                 </Box>
               )}
             </Box>
           </Container>
         </Box>
       </Box>
+
+      {/* History Modal */}
+      <HistoryModal open={historyModalOpen} onClose={() => setHistoryModalOpen(false)} />
     </Box>
   );
 };

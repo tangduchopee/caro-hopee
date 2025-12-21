@@ -73,6 +73,8 @@ export const makeMove = async (
     } else {
       game.score.player2++;
     }
+    
+    console.log(`[GameEngine] Game ${game.roomId} finished - Winner: Player ${player}, finishedAt: ${game.finishedAt}`);
   }
 
   // Check for draw (board full)
@@ -81,9 +83,11 @@ export const makeMove = async (
     game.gameStatus = 'finished';
     game.winner = 'draw';
     game.finishedAt = new Date();
+    console.log(`[GameEngine] Game ${game.roomId} finished - Draw, finishedAt: ${game.finishedAt}`);
   }
 
   await game.save();
+  console.log(`[GameEngine] Game ${game.roomId} saved with status: ${game.gameStatus}, finishedAt: ${game.finishedAt}`);
 
   return { success: true, game };
 };

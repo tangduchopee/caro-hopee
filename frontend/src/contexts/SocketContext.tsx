@@ -13,17 +13,45 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [isConnected, setIsConnected] = React.useState(false);
 
   useEffect(() => {
+    // Only reconnect if authentication status changed
+    // Get token and reconnect
     const token = localStorage.getItem('token');
-    socketService.connect(token || undefined);
-
+    
+    // Check if we need to reconnect (socket doesn't exist or token changed)
     const socket = socketService.getSocket();
-    if (socket) {
-      socket.on('connect', () => setIsConnected(true));
-      socket.on('disconnect', () => setIsConnected(false));
+    const needsReconnect = !socket || !socket.connected;
+    
+    if (needsReconnect) {
+      // Disconnect existing socket first (if any)
+      socketService.disconnect();
+      socketService.connect(token || undefined);
     }
 
+    const currentSocket = socketService.getSocket();
+    if (!currentSocket) return;
+
+    const handleConnect = () => {
+      console.log('Socket connected with token:', token ? 'Yes' : 'No');
+      setIsConnected(true);
+    };
+
+    const handleDisconnect = () => {
+      setIsConnected(false);
+    };
+
+    // Only add listeners if socket is new or not already listening
+    // Check if listeners already exist to avoid duplicates
+    currentSocket.on('connect', handleConnect);
+    currentSocket.on('disconnect', handleDisconnect);
+
     return () => {
-      socketService.disconnect();
+      // Cleanup: remove listeners
+      if (currentSocket) {
+        currentSocket.off('connect', handleConnect);
+        currentSocket.off('disconnect', handleDisconnect);
+      }
+      // Don't disconnect on unmount - keep connection alive
+      // socketService.disconnect();
     };
   }, [isAuthenticated]);
 

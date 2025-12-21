@@ -31,13 +31,14 @@ interface GameContextType {
 const GameContext = createContext<GameContextType | undefined>(undefined);
 
 // Helper function to convert game data to players array
+// Note: This is a fallback - real usernames come from socket events
 const gameToPlayers = (game: Game): PlayerInfo[] => {
   const players: PlayerInfo[] = [];
   
   if (game.player1) {
     players.push({
       id: game.player1,
-      username: 'Player 1',
+      username: 'Player 1', // Will be updated from socket event with real username
       isGuest: false,
       playerNumber: 1,
     });
@@ -53,7 +54,7 @@ const gameToPlayers = (game: Game): PlayerInfo[] => {
   if (game.player2) {
     players.push({
       id: game.player2,
-      username: 'Player 2',
+      username: 'Player 2', // Will be updated from socket event with real username
       isGuest: false,
       playerNumber: 2,
     });
@@ -141,6 +142,8 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             // Update my player number - will be set after state update completes
             const playerNumber = myPlayer.playerNumber;
             // Use requestAnimationFrame to avoid state update during render
+            // Note: requestAnimationFrame completes very quickly (1 frame), so cleanup is not critical
+            // but we set it immediately to avoid potential issues
             requestAnimationFrame(() => {
               setMyPlayerNumber(playerNumber);
               console.log('My player number set from game data:', playerNumber, 'myPlayer:', myPlayer);
@@ -160,6 +163,10 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     const socket = socketService.getSocket();
     if (!socket) return;
+
+    // Track if component is mounted to prevent state updates after unmount
+    let isMounted = true;
+    const pendingTimeouts: NodeJS.Timeout[] = [];
 
     const handleRoomJoined = (data: { roomId: string; players: PlayerInfo[]; gameStatus?: string; currentPlayer?: PlayerNumber }) => {
       console.log('Room joined event received:', data);
@@ -210,6 +217,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     const handlePlayerJoined = async (data: { player: PlayerInfo }) => {
+      if (!isMounted) return;
       console.log('Player joined event received:', data);
       
       // Update players list
@@ -234,11 +242,14 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       
       // Reload game state to get updated player2/player2GuestId
-      if (roomId) {
+      // Use roomId from closure, but check isMounted before setting state
+      if (roomId && isMounted) {
         try {
           const updatedGame = await gameApi.getGame(roomId);
-          setGame(updatedGame);
-          console.log('Game state reloaded after player joined:', updatedGame);
+          if (isMounted) {
+            setGame(updatedGame);
+            console.log('Game state reloaded after player joined:', updatedGame);
+          }
         } catch (error) {
           console.error('Failed to reload game state after player joined:', error);
         }
@@ -248,20 +259,50 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     const handlePlayerLeft = async (data: { playerId?: string; playerNumber?: number; roomId?: string; hostTransferred?: boolean; gameReset?: boolean }) => {
-      // If host was transferred or player left, reload game data to get updated state
-      if ((data.hostTransferred || data.playerNumber || data.playerId) && roomId) {
+      if (!isMounted) return;
+      console.log('handlePlayerLeft called with:', data, 'current roomId:', roomId);
+      
+      // Always reload game state when any player leaves (if we have roomId)
+      // Check if this event is for our current room
+      const isForCurrentRoom = !data.roomId || data.roomId === roomId;
+      const hasRelevantData = data.hostTransferred || data.playerNumber !== undefined || data.playerId || data.gameReset;
+      
+      // If we have roomId and this event is relevant, always reload
+      if (roomId && (isForCurrentRoom || hasRelevantData) && isMounted) {
         try {
+          console.log('Reloading game state after player left...');
           const updatedGame = await gameApi.getGame(roomId);
+          if (!isMounted) return;
           
+          // Get current game state using functional update to avoid stale closure
           // If game was finished and now is waiting, it means the other player left
           // and game was reset - modal will auto-close because showWinnerModal checks gameStatus
-          const wasFinished = game?.gameStatus === 'finished';
+          let wasFinished = false;
+          setGame(prevGame => {
+            wasFinished = prevGame?.gameStatus === 'finished' || false;
+            return prevGame; // Don't update yet, we'll update with updatedGame below
+          });
           const nowWaiting = updatedGame.gameStatus === 'waiting';
+          
+          console.log('Updated game state:', {
+            gameStatus: updatedGame.gameStatus,
+            wasFinished,
+            nowWaiting,
+            hostTransferred: data.hostTransferred,
+            player1: updatedGame.player1 || updatedGame.player1GuestId,
+            player2: updatedGame.player2 || updatedGame.player2GuestId,
+          });
           
           setGame(updatedGame);
           
           // Update players list from game data
           const gamePlayers = gameToPlayers(updatedGame);
+          console.log('[handlePlayerLeft] Updated players from game data:', gamePlayers, 'length:', gamePlayers.length);
+          console.log('[handlePlayerLeft] Game data:', {
+            player1: updatedGame.player1 || updatedGame.player1GuestId,
+            player2: updatedGame.player2 || updatedGame.player2GuestId,
+            gameStatus: updatedGame.gameStatus,
+          });
           setPlayers(gamePlayers);
           
           // Update my player number
@@ -290,14 +331,66 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
           
           console.log('Game state reloaded after player left:', updatedGame, 'hostTransferred:', data.hostTransferred);
-        } catch (error) {
+          console.log('Updated players list:', gamePlayers, 'length:', gamePlayers.length);
+          
+          // Force re-render by logging current state
+          console.log('[handlePlayerLeft] Final state - gameStatus:', updatedGame.gameStatus, 'players.length:', gamePlayers.length);
+        } catch (error: any) {
           console.error('Failed to reload game state after player left:', error);
+          // If game was deleted (404), clear state immediately
+          if (error.response?.status === 404) {
+            console.log('Game was deleted (404) - clearing state immediately');
+            setRoomId(null);
+            setGame(null);
+            setPlayers([]);
+            setMyPlayerNumber(null);
+            return;
+          }
           // Fallback: manually update players list if reload fails
           if (data.playerNumber) {
-            setPlayers(prev => prev.filter(p => p.playerNumber !== data.playerNumber));
+            setPlayers(prev => {
+              const filtered = prev.filter(p => p.playerNumber !== data.playerNumber);
+              console.log('Manually updated players list after player left:', filtered, 'length:', filtered.length);
+              // If no players left, clear game state
+              if (filtered.length === 0) {
+                console.log('No players left - clearing game state');
+                setGame(null);
+                setRoomId(null);
+                setMyPlayerNumber(null);
+              }
+              return filtered;
+            });
           } else if (data.playerId) {
-            setPlayers(prev => prev.filter(p => p.id !== data.playerId));
+            setPlayers(prev => {
+              const filtered = prev.filter(p => p.id !== data.playerId);
+              console.log('Manually updated players list after player left:', filtered, 'length:', filtered.length);
+              // If no players left, clear game state
+              if (filtered.length === 0) {
+                console.log('No players left - clearing game state');
+                setGame(null);
+                setRoomId(null);
+                setMyPlayerNumber(null);
+              }
+              return filtered;
+            });
           }
+        }
+        return;
+      }
+      
+      // If we don't have roomId but received player-left event, try to reload if we have game
+      if (!roomId && game && game.roomId) {
+        console.log('No roomId in state, but have game.roomId, reloading...');
+        try {
+          const updatedGame = await gameApi.getGame(game.roomId);
+          if (isMounted) {
+            setGame(updatedGame);
+            const gamePlayers = gameToPlayers(updatedGame);
+            setPlayers(gamePlayers);
+            console.log('Game state reloaded using game.roomId');
+          }
+        } catch (error) {
+          console.error('Failed to reload game state:', error);
         }
         return;
       }
@@ -315,12 +408,15 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     const handleGameDeleted = (data: { roomId: string }) => {
-      // If this is our game, clear everything and navigate
+      console.log('handleGameDeleted called with:', data, 'current roomId:', roomId);
+      // If this is our game, clear everything immediately
       if (data.roomId === roomId) {
+        console.log('Game deleted - clearing state immediately');
         setRoomId(null);
         setGame(null);
         setPlayers([]);
         setMyPlayerNumber(null);
+        // Note: Navigation will be handled by GameRoomPage useEffect that watches for game === null
       }
     };
 
@@ -353,29 +449,42 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     const handleGameFinished = async (data: { winner: Winner; reason: string }) => {
-      let finishedGame: Game | null = null;
+      // Capture game data before updating state to avoid stale closure
+      let finishedGameData: { roomId: string; roomCode: string; boardSize: number } | null = null;
       
       setGame(prevGame => {
         if (!prevGame) return prevGame;
-        finishedGame = {
+        // Capture game data before state update
+        finishedGameData = {
+          roomId: prevGame.roomId,
+          roomCode: prevGame.roomCode,
+          boardSize: prevGame.boardSize,
+        };
+        return {
           ...prevGame,
           gameStatus: 'finished',
           winner: data.winner,
         };
-        return finishedGame;
       });
 
       // Submit game result to stats API if user is authenticated
       // Use setTimeout to ensure state is updated
-      setTimeout(async () => {
-        if (isAuthenticated && user && finishedGame && myPlayerNumber) {
+      // Note: This timeout is inside a socket handler, cleanup handled by socket cleanup
+      // Capture values from closure to avoid stale values
+      const currentIsAuthenticated = isAuthenticated;
+      const currentUser = user;
+      const currentMyPlayerNumber = myPlayerNumber;
+      
+      const timeoutId = setTimeout(async () => {
+        if (!isMounted) return;
+        if (currentIsAuthenticated && currentUser && finishedGameData && currentMyPlayerNumber) {
           try {
             // Determine result: winner can be 1, 2, 'draw', or null
             let myResult: 'win' | 'loss' | 'draw';
             const winner = data.winner;
             if (winner === 'draw' || winner === null) {
               myResult = 'draw';
-            } else if (myPlayerNumber === winner) {
+            } else if (currentMyPlayerNumber === winner) {
               myResult = 'win';
             } else {
               myResult = 'loss';
@@ -387,9 +496,9 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               undefined, // score will be calculated on server
               undefined, // customStats
               {
-                roomId: finishedGame.roomId,
-                roomCode: finishedGame.roomCode,
-                boardSize: finishedGame.boardSize,
+                roomId: finishedGameData.roomId,
+                roomCode: finishedGameData.roomCode,
+                boardSize: finishedGameData.boardSize,
               }
             );
           } catch (error) {
@@ -398,6 +507,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
         }
       }, 100);
+      pendingTimeouts.push(timeoutId);
     };
 
     const handleScoreUpdated = (data: { score: { player1: number; player2: number } }) => {
@@ -477,6 +587,14 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     socket.on('game-error', handleGameError);
 
     return () => {
+      // Mark as unmounted to prevent state updates
+      isMounted = false;
+      
+      // Clear all pending timeouts
+      pendingTimeouts.forEach((timeoutId: NodeJS.Timeout) => clearTimeout(timeoutId));
+      pendingTimeouts.length = 0;
+      
+      // Remove all socket listeners
       socket.off('room-joined', handleRoomJoined);
       socket.off('player-joined', handlePlayerJoined);
       socket.off('player-left', handlePlayerLeft);

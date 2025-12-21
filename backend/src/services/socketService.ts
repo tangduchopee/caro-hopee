@@ -1,7 +1,9 @@
 import { Server as SocketIOServer } from 'socket.io';
 import { Server as HTTPServer } from 'http';
+import mongoose from 'mongoose';
 import Game from '../models/Game';
 import GameMove from '../models/GameMove';
+import User from '../models/User';
 import { makeMove, undoMove } from './gameEngine';
 import { checkWin } from './winChecker';
 import { PlayerNumber } from '../types/game.types';
@@ -40,11 +42,12 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
         // Emit current game state - only include players that actually exist and are set
         const players: any[] = [];
         
-        // Add player1 if exists
+        // Add player1 if exists - populate username from User model
         if (game.player1) {
+          const user1 = await User.findById(game.player1).select('username').lean();
           players.push({
             id: game.player1.toString(),
-            username: 'Player 1',
+            username: user1?.username || 'Player 1',
             isGuest: false,
             playerNumber: 1,
           });
@@ -57,11 +60,12 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
           });
         }
         
-        // Only add player2 if they actually exist (not null/undefined)
+        // Only add player2 if they actually exist (not null/undefined) - populate username from User model
         if (game.player2) {
+          const user2 = await User.findById(game.player2).select('username').lean();
           players.push({
             id: game.player2.toString(),
-            username: 'Player 2',
+            username: user2?.username || 'Player 2',
             isGuest: false,
             playerNumber: 2,
           });
@@ -353,6 +357,16 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
         game.currentPlayer = startingPlayer;
         await game.save();
 
+        // Emit to lobby about game status change
+        io.emit('game-status-updated', {
+          roomId: game.roomId,
+          roomCode: game.roomCode,
+          gameStatus: 'playing',
+          displayStatus: 'playing',
+          playerCount: 2,
+          isFull: true,
+        });
+
         io.to(roomId).emit('game-started', {
           currentPlayer: game.currentPlayer,
         });
@@ -441,18 +455,158 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
     });
 
     // Leave room
+    // Note: This is called AFTER the API leaveGame has been called
+    // So we only need to leave the socket room, not update game state
     socket.on('leave-room', async (data: { roomId: string }) => {
       socket.leave(data.roomId);
-      socket.to(data.roomId).emit('player-left', { playerId: socketData.userId || 'guest' });
+      // The API leaveGame already emitted player-left event with proper data
+      // We don't need to emit again here to avoid duplicate events
       socketData.currentRoomId = undefined;
     });
 
     // Disconnect
+    // When socket disconnects (browser closed, network issue, etc.)
+    // We need to handle player leave through API if they were in a game
     socket.on('disconnect', async () => {
       if (socketData.currentRoomId) {
-        socket.to(socketData.currentRoomId).emit('player-left', {
-          playerId: socketData.userId || 'guest',
-        });
+        const roomId = socketData.currentRoomId;
+        const playerId = socketData.userId || socketData.playerId;
+        const isGuest = socketData.isGuest || !socketData.userId;
+        
+        try {
+          // Find the game to determine which player is leaving
+          const game = await Game.findOne({ roomId });
+          if (!game) {
+            // Game doesn't exist, nothing to do
+            return;
+          }
+
+          // Determine which player is leaving
+          let isPlayer1 = false;
+          let isPlayer2 = false;
+          
+          if (playerId) {
+            // Check if authenticated user is player1 or player2
+            if (socketData.userId) {
+              isPlayer1 = !!(game.player1 && game.player1.toString() === socketData.userId.toString());
+              isPlayer2 = !!(game.player2 && game.player2.toString() === socketData.userId.toString());
+            }
+            
+            // Also check if playerId matches guest IDs
+            if (isGuest && playerId) {
+              if (game.player1GuestId && game.player1GuestId === playerId) {
+                isPlayer1 = true;
+              }
+              if (game.player2GuestId && game.player2GuestId === playerId) {
+                isPlayer2 = true;
+              }
+            }
+          }
+
+          // Only process if player is actually in the game
+          if (isPlayer1 || isPlayer2) {
+            // Check players BEFORE removing
+            const hasPlayer1Before = !!(game.player1 || game.player1GuestId);
+            const hasPlayer2Before = !!(game.player2 || game.player2GuestId);
+            const wasFinished = game.gameStatus === 'finished';
+
+            // Remove the player from the game
+            if (isPlayer1) {
+              game.player1 = null;
+              game.player1GuestId = null;
+            } else if (isPlayer2) {
+              game.player2 = null;
+              game.player2GuestId = null;
+            }
+
+            // Check players AFTER removing
+            const hasPlayer1After = !!(game.player1 || game.player1GuestId);
+            const hasPlayer2After = !!(game.player2 || game.player2GuestId);
+            const hasNoPlayers = !hasPlayer1After && !hasPlayer2After;
+
+            let gameReset = false;
+            let hostTransferred = false;
+
+            if (hasNoPlayers) {
+              // Case 1: Game finished + cả 2 player rời → lưu vào history và xóa game
+              if (game.gameStatus === 'finished' && game.finishedAt) {
+                const GameHistory = (await import('../models/GameHistory')).default;
+                const historyRecord = new GameHistory({
+                  originalGameId: game._id.toString(),
+                  roomId: game.roomId,
+                  roomCode: game.roomCode,
+                  gameType: game.gameType,
+                  player1: game.player1,
+                  player2: game.player2,
+                  player1GuestId: game.player1GuestId,
+                  player2GuestId: game.player2GuestId,
+                  boardSize: game.boardSize,
+                  board: game.board,
+                  winner: game.winner,
+                  score: game.score,
+                  rules: game.rules,
+                  finishedAt: game.finishedAt,
+                  createdAt: game.createdAt,
+                  savedAt: new Date(),
+                });
+                await historyRecord.save();
+                
+                // Clean up old history - simplified version for socket disconnect
+                // Full cleanup logic is in gameController.leaveGame
+                // For disconnect, we just delete the game
+                
+                await Game.deleteOne({ roomId });
+                io.to(roomId).emit('game-deleted', { roomId });
+                return;
+              } else {
+                // Case 3: Game chưa finished + cả 2 player rời → xóa game
+                await Game.deleteOne({ roomId });
+                io.to(roomId).emit('game-deleted', { roomId });
+                return;
+              }
+            } else {
+              // If player1 (host) left and player2 still exists AFTER removal, transfer host to player2
+              if (isPlayer1 && hasPlayer2After) {
+                // Transfer player2 to player1 (host transfer)
+                game.player1 = game.player2;
+                game.player1GuestId = game.player2GuestId;
+                game.player2 = null;
+                game.player2GuestId = null;
+                hostTransferred = true;
+                console.log(`[socket disconnect] Host transferred: Player2 is now Player1`);
+              }
+
+              // Reset game if needed
+              if (wasFinished || game.gameStatus === 'playing') {
+                game.gameStatus = 'waiting';
+                game.winner = null;
+                game.finishedAt = null;
+                game.board = Array(game.boardSize)
+                  .fill(null)
+                  .map(() => Array(game.boardSize).fill(0));
+                game.currentPlayer = 1;
+                gameReset = true;
+              }
+
+              await game.save();
+
+              // Emit player-left event with proper data
+              io.to(roomId).emit('player-left', {
+                playerNumber: isPlayer1 ? 1 : 2,
+                roomId,
+                hostTransferred: hostTransferred,
+                gameReset: gameReset,
+              });
+            }
+          }
+        } catch (error: any) {
+          console.error('[socket disconnect] Error handling player leave:', error);
+          // Still emit player-left event so frontend can reload
+          io.to(roomId).emit('player-left', {
+            playerId: playerId || 'guest',
+            roomId,
+          });
+        }
       }
     });
   });

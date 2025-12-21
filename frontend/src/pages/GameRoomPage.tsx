@@ -18,7 +18,10 @@ const GameRoomPage: React.FC = () => {
   const hasLeftRef = useRef(false);
   const pendingNavigation = useRef<(() => void) | null>(null);
   
+  // isWaiting: game status is waiting AND not enough players (< 2) - show waiting message only
+  // This includes when host leaves and player2 becomes player1 (only 1 player remains)
   const isWaiting = game && game.gameStatus === 'waiting' && players.length < 2;
+  // canStartGame: game status is waiting AND has exactly 2 players ready to start - show board with Start button
   const canStartGame = game && game.gameStatus === 'waiting' && players.length === 2;
   
   // Block navigation (back button, programmatic navigation) using useBlocker
@@ -96,10 +99,11 @@ const GameRoomPage: React.FC = () => {
     pendingNavigation.current = null;
   };
   
-  // Debug logging
+  // Debug logging - removed players array from dependency to avoid unnecessary re-renders
+  // players.length is sufficient to track changes
   React.useEffect(() => {
-    console.log('GameRoomPage - isWaiting:', isWaiting, 'gameStatus:', game?.gameStatus, 'players.length:', players.length, 'players:', players);
-  }, [isWaiting, game?.gameStatus, players.length, players]);
+    console.log('GameRoomPage - isWaiting:', isWaiting, 'gameStatus:', game?.gameStatus, 'players.length:', players.length);
+  }, [isWaiting, game?.gameStatus, players.length]);
 
   useEffect(() => {
     if (!roomId) {
@@ -112,16 +116,28 @@ const GameRoomPage: React.FC = () => {
     const loadGame = async (): Promise<void> => {
       try {
         setLoading(true);
+        console.log('[GameRoomPage] Loading game with roomId:', roomId);
         const gameData = await gameApi.getGame(roomId);
+        console.log('[GameRoomPage] Game loaded successfully:', gameData);
         if (isMounted) {
+          // Set game first, then join room
           setGame(gameData);
+          // Join room immediately - joinRoom will handle the game state check
           joinRoom(roomId);
           setLoading(false);
         }
-      } catch (error) {
-        console.error('Failed to load game:', error);
+      } catch (error: any) {
+        console.error('[GameRoomPage] Failed to load game:', error);
+        // If game not found (404), it might have been deleted
         if (isMounted) {
-          navigate('/');
+          setLoading(false);
+          if (error.response?.status === 404) {
+            console.log('[GameRoomPage] Game not found (404) - navigating to home');
+            navigate('/');
+          } else {
+            console.log('[GameRoomPage] Error loading game - navigating to home');
+            navigate('/');
+          }
         }
       }
     };
@@ -133,6 +149,30 @@ const GameRoomPage: React.FC = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
+
+  // Navigate to home if game is deleted (game becomes null) - but only if not loading
+  // Don't navigate during initial load or when we're in the process of leaving
+  // Use a ref to track if we've completed initial load
+  const initialLoadCompleteRef = useRef(false);
+  
+  useEffect(() => {
+    if (!loading && game) {
+      initialLoadCompleteRef.current = true;
+    }
+  }, [loading, game]);
+
+  useEffect(() => {
+    // Only navigate if:
+    // 1. Game is null
+    // 2. We have a roomId
+    // 3. We haven't left manually
+    // 4. We're not currently loading
+    // 5. Initial load has completed (to avoid navigating during initial mount)
+    if (game === null && roomId && !hasLeftRef.current && !loading && initialLoadCompleteRef.current) {
+      console.log('[GameRoomPage] Game is null and initial load completed - navigating to home');
+      navigate('/');
+    }
+  }, [game, roomId, navigate, loading]);
 
   if (loading || !game) {
     return (
@@ -372,109 +412,113 @@ const GameRoomPage: React.FC = () => {
                   Share the room code with another player to start the game
                 </Typography>
               </Box>
-            ) : (
+            ) : canStartGame ? (
+              // Game is waiting but has 2 players - show board with Start Game button
               <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center', position: 'relative' }}>
                 <GameBoard />
-                {canStartGame && (
-                  <>
-                    {/* Semi-transparent overlay */}
-                    <Box
+                <>
+                  {/* Semi-transparent overlay */}
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      bgcolor: 'rgba(0, 0, 0, 0.3)',
+                      backdropFilter: 'blur(4px)',
+                      WebkitBackdropFilter: 'blur(4px)',
+                      willChange: 'transform',
+                      zIndex: 5,
+                      borderRadius: 4,
+                      pointerEvents: 'none',
+                    }}
+                  />
+                  {/* Start Game Button */}
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      zIndex: 10,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 2,
+                    }}
+                  >
+                    <Button
+                      variant="contained"
+                      size="large"
+                      onClick={startGame}
                       sx={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        bgcolor: 'rgba(0, 0, 0, 0.3)',
-                        backdropFilter: 'blur(4px)',
-                        WebkitBackdropFilter: 'blur(4px)',
-                        willChange: 'transform',
-                        zIndex: 5,
-                        borderRadius: 4,
-                        pointerEvents: 'none',
-                      }}
-                    />
-                    {/* Start Game Button */}
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        zIndex: 10,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: 2,
+                        minWidth: 200,
+                        py: 2,
+                        px: 4,
+                        borderRadius: 3,
+                        background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
+                        color: '#ffffff',
+                        fontWeight: 700,
+                        fontSize: '1.2rem',
+                        textTransform: 'none',
+                        boxShadow: '0 8px 24px rgba(126, 200, 227, 0.4)',
+                        transition: 'all 0.3s ease',
+                        '&:hover': {
+                          background: 'linear-gradient(135deg, #5ba8c7 0%, #88d6b7 100%)',
+                          boxShadow: '0 12px 32px rgba(126, 200, 227, 0.5)',
+                          transform: 'translateY(-2px)',
+                        },
                       }}
                     >
-                      <Button
-                        variant="contained"
-                        size="large"
-                        onClick={startGame}
+                      🎮 Start Game
+                    </Button>
+                    <Box
+                      sx={{
+                        bgcolor: 'rgba(255, 255, 255, 0.95)',
+                        px: 2,
+                        py: 1.5,
+                        borderRadius: 2,
+                        backdropFilter: 'blur(8px)',
+                        WebkitBackdropFilter: 'blur(8px)',
+                        willChange: 'transform',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                        textAlign: 'center',
+                      }}
+                    >
+                      <Typography
+                        variant="body2"
                         sx={{
-                          minWidth: 200,
-                          py: 2,
-                          px: 4,
-                          borderRadius: 3,
-                          background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
-                          color: '#ffffff',
-                          fontWeight: 700,
-                          fontSize: '1.2rem',
-                          textTransform: 'none',
-                          boxShadow: '0 8px 24px rgba(126, 200, 227, 0.4)',
-                          transition: 'all 0.3s ease',
-                          '&:hover': {
-                            background: 'linear-gradient(135deg, #5ba8c7 0%, #88d6b7 100%)',
-                            boxShadow: '0 12px 32px rgba(126, 200, 227, 0.5)',
-                            transform: 'translateY(-2px)',
-                          },
+                          color: '#2c3e50',
+                          fontWeight: 600,
+                          mb: 0.5,
+                          fontSize: '0.95rem',
                         }}
                       >
-                        🎮 Start Game
-                      </Button>
-                      <Box
+                        Ready to play! Click to start
+                      </Typography>
+                      <Typography
+                        variant="caption"
                         sx={{
-                          bgcolor: 'rgba(255, 255, 255, 0.95)',
-                          px: 2,
-                          py: 1.5,
-                          borderRadius: 2,
-                          backdropFilter: 'blur(8px)',
-                          WebkitBackdropFilter: 'blur(8px)',
-                          willChange: 'transform',
-                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                          textAlign: 'center',
+                          color: '#7ec8e3',
+                          fontWeight: 600,
+                          fontSize: '0.8rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 0.5,
                         }}
                       >
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            color: '#2c3e50',
-                            fontWeight: 600,
-                            mb: 0.5,
-                            fontSize: '0.95rem',
-                          }}
-                        >
-                          Ready to play! Click to start
-                        </Typography>
-                        <Typography
-                          variant="caption"
-                          sx={{
-                            color: '#7ec8e3',
-                            fontWeight: 600,
-                            fontSize: '0.8rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            gap: 0.5,
-                          }}
-                        >
-                          ⚡ Who clicks Start goes first!
-                        </Typography>
-                      </Box>
+                        ⚡ Who clicks Start goes first!
+                      </Typography>
                     </Box>
-                  </>
-                )}
+                  </Box>
+                </>
+              </Box>
+            ) : (
+              // Game is playing - show board normally
+              <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center', position: 'relative' }}>
+                <GameBoard />
               </Box>
             )}
           </Box>

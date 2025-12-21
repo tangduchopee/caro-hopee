@@ -30,5 +30,7 @@ export interface ServerToClientEvents {
   'game-started': (data: { currentPlayer: PlayerNumber }) => void;
   'game-error': (data: { message: string }) => void;
   'score-updated': (data: { score: GameScore }) => void;
+  'game-created': (data: { roomId: string; roomCode: string; boardSize: number; gameStatus: string; player1Username: string | null; createdAt: string }) => void;
+  'game-status-updated': (data: { roomId: string; roomCode: string; gameStatus: string; displayStatus: 'waiting' | 'ready' | 'playing'; playerCount: number; isFull: boolean }) => void;
 }
 

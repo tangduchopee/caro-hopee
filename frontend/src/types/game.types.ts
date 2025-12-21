@@ -52,3 +52,17 @@ export interface PlayerInfo {
   playerNumber: PlayerNumber;
 }
 
+export interface GameHistory {
+  _id: string;
+  roomId: string;
+  roomCode: string;
+  boardSize: number;
+  board: number[][];
+  winner: Winner;
+  result: 'win' | 'loss' | 'draw';
+  opponentUsername: string;
+  finishedAt: string | null;
+  createdAt: string;
+  score: GameScore;
+}
+

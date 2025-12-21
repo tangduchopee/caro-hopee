@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { API_BASE_URL } from '../utils/constants';
 import { AuthResponse, User } from '../types/user.types';
-import { Game } from '../types/game.types';
+import { Game, GameHistory } from '../types/game.types';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -39,11 +39,24 @@ export const authApi = {
 // Game APIs
 export const gameApi = {
   create: async (boardSize: number, rules: any): Promise<Game> => {
-    // Use getGuestId() from utils instead of localStorage
-    const { getGuestId } = await import('../utils/guestId');
-    const guestId = getGuestId();
-    const response = await api.post('/games/create', { boardSize, rules, guestId });
-    return response.data;
+    try {
+      // Use getGuestId() from utils instead of localStorage
+      const { getGuestId } = await import('../utils/guestId');
+      const guestId = getGuestId();
+      console.log('[gameApi.create] Calling API with:', { boardSize, rules, guestId });
+      const response = await api.post('/games/create', { boardSize, rules, guestId });
+      console.log('[gameApi.create] Response received:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('[gameApi.create] API call failed:', error);
+      console.error('[gameApi.create] Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        config: error.config
+      });
+      throw error;
+    }
   },
   getGame: async (roomId: string): Promise<Game> => {
     const response = await api.get(`/games/${roomId}`);
@@ -73,6 +86,14 @@ export const gameApi = {
   },
   getWaitingGames: async (): Promise<any[]> => {
     const response = await api.get('/games/waiting');
+    return response.data;
+  },
+  getGameHistory: async (): Promise<{ history: GameHistory[]; total: number }> => {
+    const { getGuestId } = await import('../utils/guestId');
+    const guestId = getGuestId();
+    console.log('[API] getGameHistory called with guestId:', guestId);
+    const response = await api.post('/games/history', { guestId });
+    console.log('[API] getGameHistory response:', response.data);
     return response.data;
   },
 };
