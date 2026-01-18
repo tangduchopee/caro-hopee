@@ -443,14 +443,18 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
         game.currentPlayer = 1;
         game.gameStatus = 'playing';
         game.winner = null;
+        game.winningLine = undefined; // Clear winning line for new game
         game.finishedAt = null;
 
         await game.save();
 
-        io.to(roomId).emit('move-made', {
-          move: null,
+        // Emit game-reset event with full state (including cleared winningLine)
+        io.to(roomId).emit('game-reset', {
           board: game.board,
           currentPlayer: game.currentPlayer,
+          gameStatus: game.gameStatus,
+          winner: null,
+          winningLine: null,
         });
       } catch (error: any) {
         socket.emit('game-error', { message: error.message });

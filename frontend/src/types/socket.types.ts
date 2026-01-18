@@ -42,6 +42,7 @@ export interface ServerToClientEvents {
   'undo-rejected': (data: { moveNumber: number }) => void;
   'game-finished': (data: { winner: Winner; reason: string }) => void;
   'game-started': (data: { currentPlayer: PlayerNumber }) => void;
+  'game-reset': (data: { board: number[][]; currentPlayer: PlayerNumber; gameStatus: string; winner: null; winningLine: null }) => void;
   'game-error': (data: { message: string }) => void;
   'score-updated': (data: { score: GameScore }) => void;
   'game-created': (data: { roomId: string; roomCode: string; boardSize: number; gameStatus: string; player1Username: string | null; createdAt: string }) => void;

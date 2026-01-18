@@ -1,5 +1,7 @@
 import React, { memo, useCallback } from 'react';
 import { Paper, Box, Typography, Chip, Button, CircularProgress } from '@mui/material';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import { formatRelativeTime } from '../../utils/timeFormat';
 
 /**
  * GameCard - Optimized for INP performance
@@ -139,11 +141,26 @@ const GameCard: React.FC<GameCardProps> = memo(({ game, joiningGameId, onJoin })
             }}
           />
         </Box>
-        {game.player1Username && (
-          <Typography variant="caption" sx={{ color: '#5a6a7a', fontSize: '0.8rem' }}>
-            Host: {game.player1Username}
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          {game.player1Username && (
+            <Typography variant="caption" sx={{ color: '#5a6a7a', fontSize: '0.8rem' }}>
+              Host: {game.player1Username}
+            </Typography>
+          )}
+          <Typography
+            variant="caption"
+            sx={{
+              color: '#8a9ba8',
+              fontSize: '0.75rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.5,
+            }}
+          >
+            <AccessTimeIcon sx={{ fontSize: '0.875rem' }} />
+            {formatRelativeTime(game.createdAt)}
           </Typography>
-        )}
+        </Box>
       </Box>
       <Button
         variant="contained"

@@ -643,6 +643,28 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setLastMove(null);
     };
 
+    const handleGameReset = (data: {
+      board: number[][];
+      currentPlayer: PlayerNumber;
+      gameStatus: string;
+      winner: null;
+      winningLine: null;
+    }) => {
+      if (!isMountedRef.current) return;
+      setGame(prevGame => {
+        if (!prevGame) return prevGame;
+        return {
+          ...prevGame,
+          board: data.board,
+          currentPlayer: data.currentPlayer,
+          gameStatus: data.gameStatus as any,
+          winner: data.winner,
+          winningLine: undefined, // Clear winning line
+        };
+      });
+      setLastMove(null); // Clear last move highlight
+    };
+
     const handleGameError = (data: { message: string }) => {
       logger.error('Game error received:', data.message);
       alert(`Game Error: ${data.message}`);
@@ -668,6 +690,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     socket.on('undo-approved', handleUndoApproved);
     socket.on('undo-rejected', handleUndoRejected);
     socket.on('game-started', handleGameStarted);
+    socket.on('game-reset', handleGameReset);
     socket.on('game-error', handleGameError);
 
     return () => {
@@ -688,6 +711,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       socket.off('undo-approved', handleUndoApproved);
       socket.off('undo-rejected', handleUndoRejected);
       socket.off('game-started', handleGameStarted);
+      socket.off('game-reset', handleGameReset);
       socket.off('game-error', handleGameError);
     };
   }, [debouncedReloadGame, socketConnected]);

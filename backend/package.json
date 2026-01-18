@@ -9,7 +9,8 @@
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1",
     "migrate:stats": "ts-node src/scripts/migrateUserStats.ts",
-    "init:gametypes": "ts-node src/scripts/initGameTypes.ts"
+    "init:gametypes": "ts-node src/scripts/initGameTypes.ts",
+    "cleanup:games": "ts-node src/scripts/cleanupStaleGames.ts"
   },
   "keywords": [],
   "author": "",
