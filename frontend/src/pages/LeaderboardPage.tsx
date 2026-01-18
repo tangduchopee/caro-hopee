@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Container, Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, Tab, CircularProgress } from '@mui/material';
 import { leaderboardApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../i18n';
 import { logger } from '../utils/logger';
 
 interface LeaderboardEntry {
@@ -25,6 +26,7 @@ interface LeaderboardData {
 
 const LeaderboardPage: React.FC = () => {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [gameId] = useState<string>('caro');
   const [period, setPeriod] = useState<'daily' | 'weekly' | 'all-time'>('all-time');
   const [leaderboard, setLeaderboard] = useState<LeaderboardData | null>(null);
@@ -83,8 +85,8 @@ const LeaderboardPage: React.FC = () => {
   return (
     <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
       <Box sx={{ mb: 4, textAlign: 'center' }}>
-        <Typography 
-          variant="h3" 
+        <Typography
+          variant="h3"
           gutterBottom
           sx={{
             background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
@@ -96,10 +98,10 @@ const LeaderboardPage: React.FC = () => {
             mb: 2,
           }}
         >
-          🏆 Leaderboard
+          🏆 {t('leaderboard.title')}
         </Typography>
         <Typography variant="body1" sx={{ color: '#5a6a7a', fontSize: '1.1rem', mb: 3 }}>
-          Top players ranked by score - {gameId.toUpperCase()}
+          {t('leaderboard.subtitle')} - {gameId.toUpperCase()}
         </Typography>
 
         {/* Period Tabs */}
@@ -119,9 +121,9 @@ const LeaderboardPage: React.FC = () => {
               },
             }}
           >
-            <Tab label="Daily" />
-            <Tab label="Weekly" />
-            <Tab label="All Time" />
+            <Tab label={t('leaderboard.daily')} />
+            <Tab label={t('leaderboard.weekly')} />
+            <Tab label={t('leaderboard.allTime')} />
           </Tabs>
         </Box>
 
@@ -139,13 +141,13 @@ const LeaderboardPage: React.FC = () => {
             }}
           >
             <Typography variant="body1" sx={{ color: '#2c3e50', fontWeight: 600 }}>
-              Your Rank: <span style={{ color: '#7ec8e3', fontWeight: 700 }}>#{userRank.rank}</span> out of {userRank.totalPlayers} players
+              {t('leaderboard.yourRank')}: <span style={{ color: '#7ec8e3', fontWeight: 700 }}>#{userRank.rank}</span> {t('leaderboard.outOf', { count: userRank.totalPlayers })}
             </Typography>
           </Paper>
         )}
       </Box>
 
-      <TableContainer 
+      <TableContainer
         component={Paper}
         elevation={0}
         sx={{
@@ -162,10 +164,10 @@ const LeaderboardPage: React.FC = () => {
         <Table>
           <TableHead>
             <TableRow sx={{ bgcolor: 'rgba(126, 200, 227, 0.08)' }}>
-              <TableCell sx={{ fontWeight: 700, color: '#2c3e50', fontSize: '0.95rem' }}>Rank</TableCell>
-              <TableCell sx={{ fontWeight: 700, color: '#2c3e50', fontSize: '0.95rem' }}>Username</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700, color: '#2c3e50', fontSize: '0.95rem' }}>Wins</TableCell>
-              <TableCell align="right" sx={{ fontWeight: 700, color: '#2c3e50', fontSize: '0.95rem' }}>Score</TableCell>
+              <TableCell sx={{ fontWeight: 700, color: '#2c3e50', fontSize: '0.95rem' }}>{t('leaderboard.rank')}</TableCell>
+              <TableCell sx={{ fontWeight: 700, color: '#2c3e50', fontSize: '0.95rem' }}>{t('leaderboard.username')}</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700, color: '#2c3e50', fontSize: '0.95rem' }}>{t('leaderboard.wins')}</TableCell>
+              <TableCell align="right" sx={{ fontWeight: 700, color: '#2c3e50', fontSize: '0.95rem' }}>{t('leaderboard.score')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -173,16 +175,16 @@ const LeaderboardPage: React.FC = () => {
               <TableRow>
                 <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
                   <Typography variant="body1" sx={{ color: '#5a6a7a' }}>
-                    No players yet. Be the first!
+                    {t('leaderboard.noPlayers')}
                   </Typography>
                 </TableCell>
               </TableRow>
             ) : (
               leaderboard?.rankings.map((entry, index) => (
-                <TableRow 
+                <TableRow
                   key={entry.userId}
-                  sx={{ 
-                    '&:hover': { 
+                  sx={{
+                    '&:hover': {
                       bgcolor: 'rgba(126, 200, 227, 0.05)',
                     },
                     transition: 'background-color 0.2s ease',
@@ -190,9 +192,9 @@ const LeaderboardPage: React.FC = () => {
                   }}
                 >
                   <TableCell>
-                    <Box sx={{ 
-                      display: 'inline-flex', 
-                      alignItems: 'center', 
+                    <Box sx={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
                       justifyContent: 'center',
                       width: 32,
                       height: 32,

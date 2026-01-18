@@ -1,9 +1,11 @@
 import React from 'react';
 import { Box, Typography, Paper } from '@mui/material';
 import { useGame } from '../../contexts/GameContext';
+import { useLanguage } from '../../i18n';
 
 const GameInfo: React.FC = () => {
   const { game, players, currentPlayer, myPlayerNumber } = useGame();
+  const { t } = useLanguage();
 
   if (!game) {
     return null;
@@ -12,16 +14,16 @@ const GameInfo: React.FC = () => {
   const getStatusText = (): string => {
     switch (game.gameStatus) {
       case 'waiting':
-        return 'Waiting for players...';
+        return t('gameInfo.waitingForPlayers');
       case 'playing':
-        return `Player ${currentPlayer}'s turn`;
+        return t('gameInfo.playerTurn', { player: currentPlayer });
       case 'finished':
         if (game.winner === 'draw') {
-          return 'Draw!';
+          return t('game.draw');
         }
-        return `Player ${game.winner} wins!`;
+        return t('gameInfo.playerWins', { player: String(game.winner) });
       case 'abandoned':
-        return 'Game abandoned';
+        return t('gameInfo.gameAbandoned');
       default:
         return '';
     }
@@ -42,18 +44,18 @@ const GameInfo: React.FC = () => {
       }}
     >
       <Box sx={{ mb: 2.5 }}>
-        <Typography 
-          variant="subtitle1" 
-          sx={{ 
-            color: '#2c3e50', 
-            fontWeight: 700, 
+        <Typography
+          variant="subtitle1"
+          sx={{
+            color: '#2c3e50',
+            fontWeight: 700,
             fontSize: '0.95rem',
             mb: 1.5,
             textTransform: 'uppercase',
             letterSpacing: '0.5px',
           }}
         >
-          📊 Game Status
+          📊 {t('gameInfo.gameStatus')}
         </Typography>
         <Box sx={{ 
           p: 1.5, 
@@ -75,10 +77,10 @@ const GameInfo: React.FC = () => {
       </Box>
       
       <Box sx={{ mb: 2.5 }}>
-        <Typography 
-          variant="subtitle1" 
-          sx={{ 
-            fontWeight: 700, 
+        <Typography
+          variant="subtitle1"
+          sx={{
+            fontWeight: 700,
             mb: 1.5,
             color: '#2c3e50',
             fontSize: '0.95rem',
@@ -86,7 +88,7 @@ const GameInfo: React.FC = () => {
             letterSpacing: '0.5px',
           }}
         >
-          👥 Players
+          👥 {t('gameInfo.players')}
         </Typography>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
           {players.map((player, index) => (
@@ -103,28 +105,28 @@ const GameInfo: React.FC = () => {
                   : '1px solid transparent',
               }}
             >
-              <Typography 
-                variant="body2" 
-                sx={{ 
+              <Typography
+                variant="body2"
+                sx={{
                   fontWeight: 600,
                   color: '#2c3e50',
                   fontSize: '0.9rem',
                 }}
               >
                 {player.playerNumber === 1 ? '✕' : '○'} {player.username}
-                {player.isGuest && ' (Guest)'}
+                {player.isGuest && ` (${t('game.guest')})`}
                 {myPlayerNumber === player.playerNumber && ' 👤'}
               </Typography>
             </Box>
           ))}
         </Box>
       </Box>
-      
+
       <Box>
-        <Typography 
-          variant="subtitle1" 
-          sx={{ 
-            fontWeight: 700, 
+        <Typography
+          variant="subtitle1"
+          sx={{
+            fontWeight: 700,
             mb: 1.5,
             color: '#2c3e50',
             fontSize: '0.95rem',
@@ -132,7 +134,7 @@ const GameInfo: React.FC = () => {
             letterSpacing: '0.5px',
           }}
         >
-          ⚙️ Game Rules
+          ⚙️ {t('gameInfo.gameRules')}
         </Typography>
         <Box sx={{ 
           p: 1.5, 
@@ -142,48 +144,48 @@ const GameInfo: React.FC = () => {
         }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Typography 
-                variant="body2" 
-                sx={{ 
+              <Typography
+                variant="body2"
+                sx={{
                   fontWeight: 600,
                   color: '#2c3e50',
                   fontSize: '0.9rem',
                 }}
               >
-                Block Two Ends:
+                {t('home.blockTwoEnds')}:
               </Typography>
-              <Typography 
-                variant="body2" 
-                sx={{ 
+              <Typography
+                variant="body2"
+                sx={{
                   fontWeight: 700,
                   color: game.rules.blockTwoEnds ? '#a8e6cf' : '#ffaaa5',
                   fontSize: '0.9rem',
                 }}
               >
-                {game.rules.blockTwoEnds ? '✓ ON' : '✗ OFF'}
+                {game.rules.blockTwoEnds ? `✓ ${t('gameInfo.on')}` : `✗ ${t('gameInfo.off')}`}
               </Typography>
             </Box>
             {game.rules.allowUndo && (
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography 
-                  variant="body2" 
-                  sx={{ 
+                <Typography
+                  variant="body2"
+                  sx={{
                     fontWeight: 600,
                     color: '#2c3e50',
                     fontSize: '0.9rem',
                   }}
                 >
-                  Allow Undo:
+                  {t('home.allowUndo')}:
                 </Typography>
-                <Typography 
-                  variant="body2" 
-                  sx={{ 
+                <Typography
+                  variant="body2"
+                  sx={{
                     fontWeight: 700,
                     color: '#a8e6cf',
                     fontSize: '0.9rem',
                   }}
                 >
-                  ✓ ON
+                  ✓ {t('gameInfo.on')}
                 </Typography>
               </Box>
             )}

@@ -18,6 +18,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close';
 import { gameApi } from '../../services/api';
 import { GameHistory } from '../../types/game.types';
+import { useLanguage } from '../../i18n';
 import { logger } from '../../utils/logger';
 
 interface HistoryModalProps {
@@ -26,6 +27,7 @@ interface HistoryModalProps {
 }
 
 const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
+  const { t, language } = useLanguage();
   const [history, setHistory] = useState<GameHistory[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedGame, setSelectedGame] = useState<GameHistory | null>(null);
@@ -84,19 +86,20 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
   const getResultLabel = (result: 'win' | 'loss' | 'draw'): string => {
     switch (result) {
       case 'win':
-        return 'Win';
+        return t('history.win');
       case 'loss':
-        return 'Loss';
+        return t('history.loss');
       case 'draw':
-        return 'Draw';
+        return t('leaderboard.draws');
       default:
-        return 'Unknown';
+        return t('history.unknown');
     }
   };
 
   const formatDate = (dateString: string): string => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
+    const locale = language === 'vi' ? 'vi-VN' : 'en-US';
+    return date.toLocaleDateString(locale, {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -129,7 +132,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
         }}
       >
         <Typography variant="h5" sx={{ fontWeight: 700, color: '#2c3e50' }}>
-          {viewMode === 'list' ? '📜 Game History' : '🎯 Game Board'}
+          {viewMode === 'list' ? `📜 ${t('history.title')}` : `🎯 ${t('history.gameBoard')}`}
         </Typography>
         {viewMode === 'board' && (
           <Button
@@ -137,7 +140,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
             size="small"
             sx={{ textTransform: 'none', fontWeight: 600 }}
           >
-            ← Back to List
+            ← {t('history.backToList')}
           </Button>
         )}
         <IconButton onClick={onClose} size="small">
@@ -155,7 +158,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
             {history.length === 0 ? (
               <Box sx={{ p: 4, textAlign: 'center' }}>
                 <Typography variant="body1" sx={{ color: '#8a9ba8' }}>
-                  No game history found. Play some games to see your history here!
+                  {t('history.noHistory')}
                 </Typography>
               </Box>
             ) : (
@@ -210,15 +213,15 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
                               }}
                             />
                             <Typography variant="body2" sx={{ color: '#8a9ba8', fontSize: '0.8rem' }}>
-                              vs {game.opponentUsername}
+                              {t('history.versus')} {game.opponentUsername}
                             </Typography>
                           </Box>
                           <Typography variant="caption" sx={{ color: '#8a9ba8', fontSize: '0.75rem' }}>
-                            {formatDate(game.finishedAt || game.createdAt)} • {game.boardSize}x{game.boardSize} board
+                            {formatDate(game.finishedAt || game.createdAt)} • {game.boardSize}x{game.boardSize} {t('history.board')}
                           </Typography>
                         </Box>
                         <Typography variant="body2" sx={{ color: '#5a6a7a', fontWeight: 600 }}>
-                          Score: {game.score.player1} - {game.score.player2}
+                          {t('game.score')}: {game.score.player1} - {game.score.player2}
                         </Typography>
                       </Box>
                     </ListItemButton>
@@ -241,7 +244,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                 <Box>
                   <Typography variant="h6" sx={{ fontWeight: 700, color: '#2c3e50', mb: 0.5 }}>
-                    Game Details
+                    {t('history.gameDetails')}
                   </Typography>
                   <Typography variant="body2" sx={{ color: '#8a9ba8' }}>
                     {formatDate(selectedGame.finishedAt || selectedGame.createdAt)}
@@ -259,7 +262,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
               <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
                 <Box>
                   <Typography variant="caption" sx={{ color: '#8a9ba8', display: 'block' }}>
-                    Opponent
+                    {t('history.opponent')}
                   </Typography>
                   <Typography variant="body2" sx={{ fontWeight: 600, color: '#2c3e50' }}>
                     {selectedGame.opponentUsername}
@@ -267,7 +270,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
                 </Box>
                 <Box>
                   <Typography variant="caption" sx={{ color: '#8a9ba8', display: 'block' }}>
-                    Board Size
+                    {t('history.boardSize')}
                   </Typography>
                   <Typography variant="body2" sx={{ fontWeight: 600, color: '#2c3e50' }}>
                     {selectedGame.boardSize}x{selectedGame.boardSize}
@@ -275,7 +278,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
                 </Box>
                 <Box>
                   <Typography variant="caption" sx={{ color: '#8a9ba8', display: 'block' }}>
-                    Final Score
+                    {t('history.finalScore')}
                   </Typography>
                   <Typography variant="body2" sx={{ fontWeight: 600, color: '#2c3e50' }}>
                     {selectedGame.score.player1} - {selectedGame.score.player2}
@@ -292,8 +295,8 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
                 p: 2,
               }}
             >
-              <GameBoardStatic 
-                board={selectedGame.board} 
+              <GameBoardStatic
+                board={selectedGame.board}
                 boardSize={selectedGame.boardSize}
                 winningLine={selectedGame.winningLine}
               />
@@ -304,7 +307,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
 
       <DialogActions sx={{ p: 2, borderTop: '1px solid rgba(126, 200, 227, 0.1)' }}>
         <Button onClick={onClose} variant="contained" sx={{ textTransform: 'none', fontWeight: 600 }}>
-          Close
+          {t('common.close')}
         </Button>
       </DialogActions>
     </Dialog>
@@ -388,11 +391,11 @@ const GameBoardStatic: React.FC<GameBoardStaticProps> = ({ board, boardSize, win
         const cols = winningLine.map(c => c.col);
         const uniqueRows = Array.from(new Set(rows));
         const uniqueCols = Array.from(new Set(cols));
-        
+
         const isHorizontal = uniqueRows.length === 1; // All cells in same row
         const isVertical = uniqueCols.length === 1; // All cells in same column
         const isDiagonal = !isHorizontal && !isVertical;
-        
+
         if (isDiagonal) {
           // Diagonal line: draw a special diamond/rhombus shape with pointed ends
           // Sort cells to get first and last
@@ -400,49 +403,49 @@ const GameBoardStatic: React.FC<GameBoardStaticProps> = ({ board, boardSize, win
             if (a.row !== b.row) return a.row - b.row;
             return a.col - b.col;
           });
-          
+
           const firstCell = sortedCells[0];
           const lastCell = sortedCells[sortedCells.length - 1];
-          
+
           // Determine diagonal direction
           const isMainDiagonal = (lastCell.col - firstCell.col) === (lastCell.row - firstCell.row);
-          
+
           // Calculate center points of first and last cells
           const firstCenterX = (firstCell.col + 0.5) * cellSize;
           const firstCenterY = (firstCell.row + 0.5) * cellSize;
           const lastCenterX = (lastCell.col + 0.5) * cellSize;
           const lastCenterY = (lastCell.row + 0.5) * cellSize;
-          
+
           // Calculate the offset for the pointed ends (extend beyond cell centers)
           const offset = cellSize * 0.4; // How much to extend beyond the cell
-          
+
           // Calculate perpendicular direction for the width of the shape
           const dx = lastCenterX - firstCenterX;
           const dy = lastCenterY - firstCenterY;
           const length = Math.sqrt(dx * dx + dy * dy);
           const perpX = -dy / length; // Perpendicular X
           const perpY = dx / length;  // Perpendicular Y
-          
+
           const widthOffset = cellSize * 0.3; // Half width of the shape
-          
+
           // Create polygon points: 4 points forming a diamond shape
           // Point 1: Top-left of first cell (extended)
           // Point 2: Top-right of first cell (extended)
           // Point 3: Bottom-right of last cell (extended)
           // Point 4: Bottom-left of last cell (extended)
-          
+
           const p1x = firstCenterX - offset * (dx / length) - widthOffset * perpX;
           const p1y = firstCenterY - offset * (dy / length) - widthOffset * perpY;
-          
+
           const p2x = firstCenterX - offset * (dx / length) + widthOffset * perpX;
           const p2y = firstCenterY - offset * (dy / length) + widthOffset * perpY;
-          
+
           const p3x = lastCenterX + offset * (dx / length) + widthOffset * perpX;
           const p3y = lastCenterY + offset * (dy / length) + widthOffset * perpY;
-          
+
           const p4x = lastCenterX + offset * (dx / length) - widthOffset * perpX;
           const p4y = lastCenterY + offset * (dy / length) - widthOffset * perpY;
-          
+
           return (
             <svg
               style={{
@@ -471,7 +474,7 @@ const GameBoardStatic: React.FC<GameBoardStaticProps> = ({ board, boardSize, win
           let rectY: number;
           let rectWidth: number;
           let rectHeight: number;
-          
+
           if (isHorizontal) {
             // Horizontal line: rectangle spans only the columns of winning cells
             const minCol = Math.min(...cols);
@@ -489,7 +492,7 @@ const GameBoardStatic: React.FC<GameBoardStaticProps> = ({ board, boardSize, win
             rectWidth = cellSize;
             rectHeight = (maxRow - minRow + 1) * cellSize;
           }
-          
+
           return (
             <Box
               sx={{

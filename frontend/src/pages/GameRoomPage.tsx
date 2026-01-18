@@ -3,6 +3,7 @@ import { Container, Box, CircularProgress, Typography, Dialog, DialogTitle, Dial
 import { useParams, useNavigate, useBlocker } from 'react-router-dom';
 import { useGame } from '../contexts/GameContext';
 import { gameApi } from '../services/api';
+import { useLanguage } from '../i18n';
 import GameBoard from '../components/GameBoard/GameBoard';
 import GameInfo from '../components/GameInfo/GameInfo';
 import GameControls from '../components/GameControls/GameControls';
@@ -13,27 +14,28 @@ import { logger } from '../utils/logger';
 const GameRoomPage: React.FC = () => {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const { game, players, joinRoom, setGame, myPlayerNumber, leaveRoom, startGame } = useGame();
   const [loading, setLoading] = useState(true);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const hasLeftRef = useRef(false);
   const pendingNavigation = useRef<(() => void) | null>(null);
-  
+
   // isWaiting: game status is waiting AND not enough players (< 2) - show waiting message only
   // This includes when host leaves and player2 becomes player1 (only 1 player remains)
   const isWaiting = game && game.gameStatus === 'waiting' && players.length < 2;
   // canStartGame: game status is waiting AND has exactly 2 players ready to start - show board with Start button
   const canStartGame = game && game.gameStatus === 'waiting' && players.length === 2;
-  
+
   // Block navigation (back button, programmatic navigation) using useBlocker
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) =>
-      game !== null && 
-      !hasLeftRef.current && 
+      game !== null &&
+      !hasLeftRef.current &&
       currentLocation.pathname !== nextLocation.pathname
   );
-  
+
   // Handle blocked navigation
   useEffect(() => {
     if (blocker.state === 'blocked') {
@@ -41,13 +43,13 @@ const GameRoomPage: React.FC = () => {
       pendingNavigation.current = blocker.proceed;
     }
   }, [blocker]);
-  
+
   // Handle browser tab close (but not reload)
   // Note: We don't call leave game API here because we can't distinguish
   // between reload and closing tab. Socket will handle disconnect automatically.
   useEffect(() => {
     if (!game || hasLeftRef.current || !roomId) return;
-    
+
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       // Only show warning if game is in progress
       // Don't call leave game API - let socket handle disconnect
@@ -58,14 +60,14 @@ const GameRoomPage: React.FC = () => {
         return ''; // Some browsers require return value
       }
     };
-    
+
     window.addEventListener('beforeunload', handleBeforeUnload);
-    
+
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [game, roomId]);
-  
+
   // Wrapper function to handle leave game with proper flag setting
   const handleLeaveGame = async (): Promise<void> => {
     // Set flag first to prevent blocker from blocking navigation
@@ -92,7 +94,7 @@ const GameRoomPage: React.FC = () => {
       setIsLeaving(false);
     }
   };
-  
+
   const handleLeaveCancel = (): void => {
     setShowLeaveConfirm(false);
     if (blocker.state === 'blocked') {
@@ -100,7 +102,7 @@ const GameRoomPage: React.FC = () => {
     }
     pendingNavigation.current = null;
   };
-  
+
   // Removed debug logging to improve performance
 
   useEffect(() => {
@@ -152,7 +154,7 @@ const GameRoomPage: React.FC = () => {
   // Don't navigate during initial load or when we're in the process of leaving
   // Use a ref to track if we've completed initial load
   const initialLoadCompleteRef = useRef(false);
-  
+
   useEffect(() => {
     if (!loading && game) {
       initialLoadCompleteRef.current = true;
@@ -187,7 +189,7 @@ const GameRoomPage: React.FC = () => {
         >
           <CircularProgress />
           <Typography variant="body1" color="text.secondary">
-            Loading game...
+            {t('gameRoom.loading')}
           </Typography>
         </Box>
       </Container>
@@ -197,25 +199,25 @@ const GameRoomPage: React.FC = () => {
   return (
     <>
       {/* Leave Confirmation Dialog */}
-      <Dialog 
-        open={showLeaveConfirm} 
-        onClose={handleLeaveCancel} 
-        maxWidth="xs" 
+      <Dialog
+        open={showLeaveConfirm}
+        onClose={handleLeaveCancel}
+        maxWidth="xs"
         fullWidth
         disableEscapeKeyDown={isLeaving}
       >
         <DialogTitle sx={{ textAlign: 'center', pt: 4, pb: 2 }}>
           <Typography variant="h5" sx={{ fontWeight: 700, color: '#2c3e50' }}>
-            ⚠️ Leave Game?
+            ⚠️ {t('gameRoom.leaveTitle')}
           </Typography>
         </DialogTitle>
         <DialogContent sx={{ textAlign: 'center', pb: 2 }}>
           <Typography variant="body1" sx={{ color: '#5a6a7a', mb: 2 }}>
-            Are you sure you want to leave this game?
+            {t('gameRoom.leaveConfirm')}
           </Typography>
           {game && game.gameStatus === 'playing' && (
             <Typography variant="body2" sx={{ color: '#ffaaa5', fontWeight: 600 }}>
-              The game is still in progress!
+              {t('gameRoom.gameInProgress')}
             </Typography>
           )}
         </DialogContent>
@@ -242,7 +244,7 @@ const GameRoomPage: React.FC = () => {
               },
             }}
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button
             variant="contained"
@@ -265,7 +267,7 @@ const GameRoomPage: React.FC = () => {
               },
             }}
           >
-            {isLeaving ? 'Leaving...' : 'Leave'}
+            {isLeaving ? t('gameRoom.leaving') : t('game.leaveGame')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -348,8 +350,8 @@ const GameRoomPage: React.FC = () => {
 
         {/* Main Content Area - Board Only */}
         <Box
-          sx={{ 
-            position: 'relative', 
+          sx={{
+            position: 'relative',
             zIndex: 1,
             ml: { lg: '328px' }, // Margin for fixed left sidebar (280px + 48px gap)
             mr: { lg: '328px' }, // Margin for fixed right sidebar (280px + 48px gap)
@@ -399,18 +401,18 @@ const GameRoomPage: React.FC = () => {
                     textAlign: 'center',
                   }}
                 >
-                  ⏳ Waiting for player...
+                  ⏳ {t('gameRoom.waitingForPlayer')}
                 </Typography>
-                <Typography 
-                  variant="body1" 
-                  sx={{ 
-                    color: '#5a6a7a', 
+                <Typography
+                  variant="body1"
+                  sx={{
+                    color: '#5a6a7a',
                     fontWeight: 500,
                     fontSize: '1.1rem',
                     textAlign: 'center',
                   }}
                 >
-                  Share the room code with another player to start the game
+                  {t('gameRoom.shareRoomCode')}
                 </Typography>
               </Box>
             ) : canStartGame ? (
@@ -474,7 +476,7 @@ const GameRoomPage: React.FC = () => {
                         },
                       }}
                     >
-                      🎮 Start Game
+                      🎮 {t('game.startGame')}
                     </Button>
                     <Box
                       sx={{
@@ -498,7 +500,7 @@ const GameRoomPage: React.FC = () => {
                           fontSize: '0.95rem',
                         }}
                       >
-                        Ready to play! Click to start
+                        {t('gameRoom.readyToPlay')}
                       </Typography>
                       <Typography
                         variant="caption"
@@ -512,7 +514,7 @@ const GameRoomPage: React.FC = () => {
                           gap: 0.5,
                         }}
                       >
-                        ⚡ Who clicks Start goes first!
+                        ⚡ {t('gameRoom.firstClickGoesFirst')}
                       </Typography>
                     </Box>
                   </Box>
@@ -583,7 +585,7 @@ const GameRoomPage: React.FC = () => {
                 textAlign: 'center',
               }}
             >
-              👥 Players & Score
+              👥 {t('gameRoom.playersAndScore')}
             </Typography>
             <Box
               sx={{
@@ -595,15 +597,15 @@ const GameRoomPage: React.FC = () => {
               {players.map((player) => {
                 const isCurrentTurn = game.gameStatus === 'playing' && game.currentPlayer === player.playerNumber;
                 const isPlayer1 = player.playerNumber === 1;
-                
+
                 return (
                   <Box
                     key={player.playerNumber}
                     sx={{
                       p: 2,
                       borderRadius: 2,
-                      bgcolor: isPlayer1 
-                        ? 'rgba(126, 200, 227, 0.08)' 
+                      bgcolor: isPlayer1
+                        ? 'rgba(126, 200, 227, 0.08)'
                         : 'rgba(168, 230, 207, 0.08)',
                       border: isCurrentTurn
                         ? `2px solid ${isPlayer1 ? '#7ec8e3' : '#a8e6cf'}`
@@ -612,7 +614,7 @@ const GameRoomPage: React.FC = () => {
                         : '1px solid rgba(168, 230, 207, 0.2)',
                       textAlign: 'center',
                       position: 'relative',
-                      boxShadow: isCurrentTurn 
+                      boxShadow: isCurrentTurn
                         ? `0 4px 16px ${isPlayer1 ? 'rgba(126, 200, 227, 0.3)' : 'rgba(168, 230, 207, 0.3)'}`
                         : 'none',
                       transform: isCurrentTurn ? 'scale(1.02)' : 'scale(1)',
@@ -620,12 +622,12 @@ const GameRoomPage: React.FC = () => {
                       animation: isCurrentTurn ? 'pulse 2s ease-in-out infinite' : 'none',
                       '@keyframes pulse': {
                         '0%, 100%': {
-                          boxShadow: isCurrentTurn 
+                          boxShadow: isCurrentTurn
                             ? `0 4px 16px ${isPlayer1 ? 'rgba(126, 200, 227, 0.3)' : 'rgba(168, 230, 207, 0.3)'}`
                             : 'none',
                         },
                         '50%': {
-                          boxShadow: isCurrentTurn 
+                          boxShadow: isCurrentTurn
                             ? `0 6px 24px ${isPlayer1 ? 'rgba(126, 200, 227, 0.5)' : 'rgba(168, 230, 207, 0.5)'}`
                             : 'none',
                         },
@@ -642,8 +644,8 @@ const GameRoomPage: React.FC = () => {
                         fontSize: '0.8rem',
                       }}
                     >
-                      Player {player.playerNumber}
-                      {myPlayerNumber === player.playerNumber && ' 👤 (You)'}
+                      {t('gameRoom.player', { number: player.playerNumber })}
+                      {myPlayerNumber === player.playerNumber && ` 👤 (${t('game.you')})`}
                     </Typography>
                     <Typography
                       variant="body1"
@@ -659,9 +661,9 @@ const GameRoomPage: React.FC = () => {
                     >
                       {isCurrentTurn && '🎯 '}
                       {player.username}
-                      {player.isGuest && ' (Guest)'}
-                      {isCurrentTurn && myPlayerNumber === player.playerNumber && ' - Your Turn!'}
-                      {isCurrentTurn && myPlayerNumber !== player.playerNumber && ' - Their Turn'}
+                      {player.isGuest && ` (${t('game.guest')})`}
+                      {isCurrentTurn && myPlayerNumber === player.playerNumber && ` - ${t('gameRoom.yourTurn')}`}
+                      {isCurrentTurn && myPlayerNumber !== player.playerNumber && ` - ${t('gameRoom.theirTurn')}`}
                     </Typography>
                     <Typography
                       variant="h4"
@@ -685,4 +687,3 @@ const GameRoomPage: React.FC = () => {
 };
 
 export default GameRoomPage;
-

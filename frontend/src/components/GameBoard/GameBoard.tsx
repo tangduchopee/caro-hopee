@@ -2,9 +2,11 @@ import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import { Box, Paper } from '@mui/material';
 import GameCell from './GameCell';
 import { useGame } from '../../contexts/GameContext';
+import { useLanguage } from '../../i18n';
 
 const GameBoard: React.FC = () => {
   const { game, isMyTurn, makeMove, lastMove } = useGame();
+  const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState(50);
@@ -96,7 +98,7 @@ const GameBoard: React.FC = () => {
   }, [game?.boardSize]);
 
   if (!game) {
-    return <div>No game loaded</div>;
+    return <div>{t('gameBoard.noGameLoaded')}</div>;
   }
 
   return (

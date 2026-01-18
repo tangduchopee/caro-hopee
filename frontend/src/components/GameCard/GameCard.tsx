@@ -2,6 +2,7 @@ import React, { memo, useCallback } from 'react';
 import { Paper, Box, Typography, Chip, Button, CircularProgress } from '@mui/material';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { formatRelativeTime } from '../../utils/timeFormat';
+import { useLanguage } from '../../i18n';
 
 /**
  * GameCard - Optimized for INP performance
@@ -57,6 +58,7 @@ const STATUS_STYLES = {
 } as const;
 
 const GameCard: React.FC<GameCardProps> = memo(({ game, joiningGameId, onJoin }) => {
+  const { t, language } = useLanguage();
   const canJoin = game.canJoin !== false;
   const isJoining = joiningGameId === game.roomId;
   const statusStyle = STATUS_STYLES[game.displayStatus || 'waiting'];
@@ -144,7 +146,7 @@ const GameCard: React.FC<GameCardProps> = memo(({ game, joiningGameId, onJoin })
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
           {game.player1Username && (
             <Typography variant="caption" sx={{ color: '#5a6a7a', fontSize: '0.8rem' }}>
-              Host: {game.player1Username}
+              {t('game.host')}: {game.player1Username}
             </Typography>
           )}
           <Typography
@@ -158,7 +160,7 @@ const GameCard: React.FC<GameCardProps> = memo(({ game, joiningGameId, onJoin })
             }}
           >
             <AccessTimeIcon sx={{ fontSize: '0.875rem' }} />
-            {formatRelativeTime(game.createdAt)}
+            {formatRelativeTime(game.createdAt, t, language)}
           </Typography>
         </Box>
       </Box>
@@ -190,12 +192,12 @@ const GameCard: React.FC<GameCardProps> = memo(({ game, joiningGameId, onJoin })
         {isJoining ? (
           <>
             <CircularProgress size={16} sx={{ mr: 1, color: '#ffffff' }} />
-            Joining...
+            {t('home.joining')}
           </>
         ) : !canJoin ? (
-          game.displayStatus === 'playing' ? 'Playing...' : 'Full (2/2)'
+          game.displayStatus === 'playing' ? t('gameCard.playing') : t('gameCard.full') + ' (2/2)'
         ) : (
-          'Join Game'
+          t('gameCard.joinGame')
         )}
       </Button>
     </Paper>

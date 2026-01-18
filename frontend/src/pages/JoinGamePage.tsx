@@ -2,33 +2,35 @@ import React, { useState } from 'react';
 import { Box, Container, Paper, TextField, Button, Typography, CircularProgress } from '@mui/material';
 import { useNavigate, Link } from 'react-router-dom';
 import { gameApi } from '../services/api';
+import { useLanguage } from '../i18n';
 import { validateRoomCode, formatRoomCode } from '../utils/roomCode';
 
 const JoinGamePage: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const [roomCode, setRoomCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleJoin = async (): Promise<void> => {
     setError('');
-    
+
     const formattedCode = formatRoomCode(roomCode);
     if (!validateRoomCode(formattedCode)) {
-      setError('Room code must be 6 characters (A-Z, 0-9)');
+      setError(t('join.invalidCode'));
       return;
     }
 
     setLoading(true);
     try {
       const game = await gameApi.getGameByCode(formattedCode);
-      
+
       // Allow joining if game is waiting OR if it's playing but not full
-      const canJoin = game.gameStatus === 'waiting' || 
+      const canJoin = game.gameStatus === 'waiting' ||
                      (game.gameStatus === 'playing' && (!game.player2 && !game.player2GuestId));
 
       if (!canJoin && game.gameStatus !== 'waiting') {
-        setError('This game is already full or finished');
+        setError(t('join.gameFull'));
         setLoading(false);
         return;
       }
@@ -37,7 +39,7 @@ const JoinGamePage: React.FC = () => {
       await gameApi.joinGame(game.roomId);
       navigate(`/game/${game.roomId}`);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Game not found. Please check the room code.');
+      setError(err.response?.data?.message || t('join.notFound'));
       setLoading(false);
     }
   };
@@ -71,8 +73,8 @@ const JoinGamePage: React.FC = () => {
             >
               🎯
             </Typography>
-            <Typography 
-              variant="h3" 
+            <Typography
+              variant="h3"
               sx={{
                 background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
                 WebkitBackgroundClip: 'text',
@@ -83,24 +85,24 @@ const JoinGamePage: React.FC = () => {
                 m: 0,
               }}
             >
-              Join Game
+              {t('join.title')}
             </Typography>
           </Box>
-          <Typography 
-            variant="h6" 
-            sx={{ 
-              color: '#5a6a7a', 
+          <Typography
+            variant="h6"
+            sx={{
+              color: '#5a6a7a',
               fontWeight: 400,
               fontSize: { xs: '1rem', md: '1.1rem' },
             }}
           >
-            Enter the room code to join a game
+            {t('join.subtitle')}
           </Typography>
         </Box>
 
-        <Paper 
+        <Paper
           elevation={0}
-          sx={{ 
+          sx={{
             p: { xs: 3, md: 5 },
             background: '#ffffff',
             border: '2px solid transparent',
@@ -117,7 +119,7 @@ const JoinGamePage: React.FC = () => {
         >
           <TextField
             fullWidth
-            label="Room Code"
+            label={t('join.roomCode')}
             value={roomCode}
             onChange={handleCodeChange}
             placeholder="ABC123"
@@ -134,7 +136,7 @@ const JoinGamePage: React.FC = () => {
             InputLabelProps={{
               shrink: true,
             }}
-            sx={{ 
+            sx={{
               mb: 3,
               '& .MuiOutlinedInput-root': {
                 borderRadius: 2,
@@ -153,10 +155,10 @@ const JoinGamePage: React.FC = () => {
           />
 
           {error && (
-            <Box sx={{ 
-              mb: 3, 
-              p: 2, 
-              borderRadius: 2, 
+            <Box sx={{
+              mb: 3,
+              p: 2,
+              borderRadius: 2,
               bgcolor: 'rgba(255, 170, 165, 0.1)',
               border: '1px solid rgba(255, 170, 165, 0.3)',
             }}>
@@ -172,7 +174,7 @@ const JoinGamePage: React.FC = () => {
             fullWidth
             onClick={handleJoin}
             disabled={loading || roomCode.length !== 6}
-            sx={{ 
+            sx={{
               mb: 2,
               py: 1.75,
               borderRadius: 2,
@@ -195,29 +197,29 @@ const JoinGamePage: React.FC = () => {
             }}
             startIcon={loading ? <CircularProgress size={20} sx={{ color: '#ffffff' }} /> : null}
           >
-            {loading ? 'Joining...' : '🎮 Join Game'}
+            {loading ? t('join.joining') : `🎮 ${t('join.joinButton')}`}
           </Button>
 
-          <Button 
-            component={Link} 
-            to="/" 
-            fullWidth 
+          <Button
+            component={Link}
+            to="/"
+            fullWidth
             variant="outlined"
-            sx={{ 
+            sx={{
               borderRadius: 2,
               textTransform: 'none',
               py: 1.25,
             }}
           >
-            Back to Home
+            {t('join.backToHome')}
           </Button>
         </Paper>
         <Box sx={{ textAlign: 'center', mt: 3 }}>
-          <Button 
-            component={Link} 
-            to="/" 
+          <Button
+            component={Link}
+            to="/"
             variant="text"
-            sx={{ 
+            sx={{
               textTransform: 'none',
               color: '#7ec8e3',
               fontWeight: 600,
@@ -226,7 +228,7 @@ const JoinGamePage: React.FC = () => {
               },
             }}
           >
-            ← Back to Home
+            ← {t('join.backToHome')}
           </Button>
         </Box>
       </Container>
@@ -235,4 +237,3 @@ const JoinGamePage: React.FC = () => {
 };
 
 export default JoinGamePage;
-

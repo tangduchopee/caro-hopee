@@ -2,6 +2,29 @@ import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { Box, Typography, Button, Paper } from '@mui/material';
 import { logger } from '../utils/logger';
 
+// Translation strings for ErrorBoundary
+// Since this is a class component, we cannot use hooks
+// These are defined outside to support both languages
+const translations = {
+  en: {
+    title: 'Something went wrong',
+    description: 'An unexpected error occurred. Please try again.',
+    tryAgain: 'Try Again',
+    reloadPage: 'Reload Page',
+  },
+  vi: {
+    title: 'Đã xảy ra lỗi',
+    description: 'Đã có lỗi không mong muốn. Vui lòng thử lại.',
+    tryAgain: 'Thử lại',
+    reloadPage: 'Tải lại trang',
+  },
+};
+
+const getLanguage = (): 'en' | 'vi' => {
+  const stored = localStorage.getItem('app-language');
+  return (stored === 'vi' ? 'vi' : 'en');
+};
+
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
@@ -45,6 +68,9 @@ class ErrorBoundary extends Component<Props, State> {
         return this.props.fallback;
       }
 
+      const lang = getLanguage();
+      const t = translations[lang];
+
       return (
         <Box
           sx={{
@@ -66,10 +92,10 @@ class ErrorBoundary extends Component<Props, State> {
             }}
           >
             <Typography variant="h5" color="error" gutterBottom>
-              Something went wrong
+              {t.title}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              An unexpected error occurred. Please try again.
+              {t.description}
             </Typography>
             {process.env.NODE_ENV === 'development' && this.state.error && (
               <Typography
@@ -90,10 +116,10 @@ class ErrorBoundary extends Component<Props, State> {
             )}
             <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
               <Button variant="outlined" onClick={this.handleRetry}>
-                Try Again
+                {t.tryAgain}
               </Button>
               <Button variant="contained" onClick={this.handleReload}>
-                Reload Page
+                {t.reloadPage}
               </Button>
             </Box>
           </Paper>

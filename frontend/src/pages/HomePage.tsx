@@ -38,6 +38,7 @@ import { validateRoomCode, formatRoomCode } from '../utils/roomCode';
 import HistoryModal from '../components/HistoryModal/HistoryModal';
 import { socketService } from '../services/socketService';
 import { logger } from '../utils/logger';
+import { useLanguage } from '../i18n';
 
 interface WaitingGame {
   _id: string;
@@ -64,12 +65,14 @@ interface GameItem {
   color: string;
 }
 
+// Games list defined outside component
+// Note: descriptions are keys for i18n
 const GAMES: GameItem[] = [
   {
     id: 'caro',
     name: 'Caro',
     icon: '🎯',
-    description: 'Classic strategy game',
+    description: 'home.caroDescription',
     available: true,
     color: '#7ec8e3',
   },
@@ -79,6 +82,7 @@ const GAMES: GameItem[] = [
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const { isAuthenticated, user, logout } = useAuth();
+  const { t } = useLanguage();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [selectedGame, setSelectedGame] = useState<string>('caro');
@@ -390,10 +394,10 @@ const HomePage: React.FC = () => {
                   mb: 0.25,
                 }}
               >
-                Game Hub
+                {t('home.title')}
               </Typography>
               <Typography variant="caption" sx={{ color: '#8a9ba8', fontSize: '0.75rem', fontWeight: 500 }}>
-                Select a game
+                {t('home.subtitle')}
               </Typography>
             </Box>
           </Box>
@@ -459,7 +463,7 @@ const HomePage: React.FC = () => {
                 </ListItemIcon>
                 <ListItemText
                   primary={game.name}
-                  secondary={game.description}
+                  secondary={t(game.description)}
                   primaryTypographyProps={{
                     fontWeight: selectedGame === game.id ? 700 : 600,
                     fontSize: '0.95rem',
@@ -473,7 +477,7 @@ const HomePage: React.FC = () => {
                 />
                 {!game.available && (
                   <Chip
-                    label="Soon"
+                    label={t('home.comingSoon')}
                     size="small"
                     sx={{
                       height: 22,
@@ -516,7 +520,7 @@ const HomePage: React.FC = () => {
                       letterSpacing: '0.5px',
                     }}
                   >
-                    👤 Logged in as
+                    👤 {t('home.loggedInAs')}
                   </Typography>
                   <Typography
                     variant="body1"
@@ -552,7 +556,7 @@ const HomePage: React.FC = () => {
                   },
                 }}
               >
-                Profile
+                {t('home.profile')}
               </Button>
               <Button
                 component={Link}
@@ -575,7 +579,7 @@ const HomePage: React.FC = () => {
                   },
                 }}
               >
-                Leaderboard
+                {t('home.leaderboard')}
               </Button>
               <Button
                 onClick={() => setHistoryModalOpen(true)}
@@ -597,7 +601,7 @@ const HomePage: React.FC = () => {
                   },
                 }}
               >
-                History
+                {t('home.history')}
               </Button>
               <Button
                 onClick={logout}
@@ -616,7 +620,7 @@ const HomePage: React.FC = () => {
                   },
                 }}
               >
-                Logout
+                {t('auth.logout')}
               </Button>
             </>
           ) : (
@@ -641,7 +645,7 @@ const HomePage: React.FC = () => {
                   },
                 }}
               >
-                History
+                {t('home.history')}
               </Button>
             <Button
               component={Link}
@@ -663,7 +667,7 @@ const HomePage: React.FC = () => {
                 },
               }}
             >
-              Login / Register
+              {t('auth.login')} / {t('auth.register')}
             </Button>
             </>
           )}
@@ -739,8 +743,8 @@ const HomePage: React.FC = () => {
                 >
                   <Typography sx={{ fontSize: '3rem' }}>{currentGame?.icon}</Typography>
                 </Box>
-                <Typography 
-                  variant="h2" 
+                <Typography
+                  variant="h2"
                   sx={{
                     background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
                     WebkitBackgroundClip: 'text',
@@ -753,20 +757,20 @@ const HomePage: React.FC = () => {
                     lineHeight: 1.1,
                   }}
                 >
-                  {currentGame?.name} Game
+                  {currentGame?.name} {t('home.game')}
                 </Typography>
-                <Typography 
-                  variant="h6" 
-                  sx={{ 
-                    color: '#5a6a7a', 
-                    fontWeight: 400, 
+                <Typography
+                  variant="h6"
+                  sx={{
+                    color: '#5a6a7a',
+                    fontWeight: 400,
                     fontSize: { xs: '1rem', md: '1.15rem' },
                     maxWidth: '650px',
                     mx: 'auto',
                     lineHeight: 1.7,
                   }}
                 >
-                  Challenge your friends to an exciting game of strategy and skill
+                  {t('home.heroDescription')}
                 </Typography>
               </Box>
 
@@ -824,31 +828,31 @@ const HomePage: React.FC = () => {
                         <Typography sx={{ fontSize: '1.5rem' }}>✨</Typography>
                       </Box>
                       <Box>
-                        <Typography 
-                          variant="h5" 
-                          sx={{ 
-                            color: '#2c3e50', 
-                            fontWeight: 700, 
+                        <Typography
+                          variant="h5"
+                          sx={{
+                            color: '#2c3e50',
+                            fontWeight: 700,
                             fontSize: { xs: '1.4rem', md: '1.6rem' },
                             mb: 0.25,
                           }}
                         >
-                          Create New Game
+                          {t('home.createNewGame')}
                         </Typography>
                         <Typography variant="body2" sx={{ color: '#5a6a7a', fontSize: '0.9rem' }}>
-                          Set up your game board and invite friends
+                          {t('home.createGameDescription')}
                         </Typography>
                       </Box>
                     </Box>
                   </Box>
 
                   <FormControl fullWidth sx={{ mb: 3 }}>
-                    <InputLabel sx={{ fontWeight: 500, color: '#5a6a7a' }}>Board Size</InputLabel>
+                    <InputLabel sx={{ fontWeight: 500, color: '#5a6a7a' }}>{t('home.boardSize')}</InputLabel>
                     <Select
                       value={boardSize}
                       onChange={(e) => setBoardSize(Number(e.target.value))}
-                      label="Board Size"
-                      sx={{ 
+                      label={t('home.boardSize')}
+                      sx={{
                         borderRadius: 2.5,
                         bgcolor: 'rgba(126, 200, 227, 0.05)',
                       }}
@@ -890,7 +894,7 @@ const HomePage: React.FC = () => {
                         },
                       }}
                     >
-                      Block Two Ends: {blockTwoEnds ? 'ON' : 'OFF'}
+                      {t('home.blockTwoEnds')}: {blockTwoEnds ? t('gameInfo.on') : t('gameInfo.off')}
                     </Button>
                   </Box>
 
@@ -913,7 +917,7 @@ const HomePage: React.FC = () => {
                       },
                     }}
                   >
-                    🚀 Create Game
+                    {t('home.createGame')}
                   </Button>
                 </Paper>
 
@@ -961,26 +965,26 @@ const HomePage: React.FC = () => {
                         <Typography sx={{ fontSize: '1.5rem' }}>🎯</Typography>
                       </Box>
                       <Box>
-                        <Typography 
-                          variant="h5" 
-                          sx={{ 
-                            color: '#2c3e50', 
-                            fontWeight: 700, 
+                        <Typography
+                          variant="h5"
+                          sx={{
+                            color: '#2c3e50',
+                            fontWeight: 700,
                             fontSize: { xs: '1.4rem', md: '1.6rem' },
                             mb: 0.25,
                           }}
                         >
-                          Join Game
+                          {t('home.joinGame')}
                         </Typography>
                         <Typography variant="body2" sx={{ color: '#5a6a7a', fontSize: '0.9rem' }}>
-                          Enter a room code to join an existing game
+                          {t('home.joinGameDescription')}
                         </Typography>
                       </Box>
                     </Box>
                   </Box>
                   <TextField
                     fullWidth
-                    label="Room Code"
+                    label={t('home.roomCode')}
                     value={joinRoomCode}
                     onChange={handleJoinCodeChange}
                     placeholder="ABC123"
@@ -1068,10 +1072,10 @@ const HomePage: React.FC = () => {
                     {joinLoading ? (
                       <>
                         <CircularProgress size={20} sx={{ mr: 1.5, color: '#ffffff' }} />
-                        Joining...
+                        {t('home.joining')}
                       </>
                     ) : (
-                      '🎮 Join Game'
+                      t('home.joinGame')
                     )}
                   </Button>
                   <Button
@@ -1079,7 +1083,7 @@ const HomePage: React.FC = () => {
                     to="/join"
                     variant="outlined"
                     fullWidth
-                    sx={{ 
+                    sx={{
                       borderRadius: 2.5,
                       textTransform: 'none',
                       py: 1.5,
@@ -1091,7 +1095,7 @@ const HomePage: React.FC = () => {
                       },
                     }}
                   >
-                    Or use join page
+                    {t('home.orUseJoinPage')}
                   </Button>
                 </Paper>
             </Box>
@@ -1130,11 +1134,11 @@ const HomePage: React.FC = () => {
                         m: 0,
                       }}
                     >
-                      Available Games
+                      {t('home.availableGames')}
                     </Typography>
                   </Box>
                   <Typography variant="body1" sx={{ color: '#5a6a7a', fontSize: '0.95rem', fontWeight: 500 }}>
-                    Join a game that's waiting for players
+                    {t('home.joinGameSubtitle')}
                   </Typography>
                 </Box>
 
@@ -1203,7 +1207,7 @@ const HomePage: React.FC = () => {
                       }}
                     >
                       <Typography variant="body1" sx={{ color: '#5a6a7a', fontSize: '1rem', textAlign: 'center' }}>
-                        No games waiting for players. Create a new game to get started!
+                        {t('home.noGamesAvailable')}
                       </Typography>
                     </Paper>
                   </Box>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Box, Typography, Paper, IconButton, Snackbar } from '@mui/material';
 import { ContentCopy, Check } from '@mui/icons-material';
+import { useLanguage } from '../i18n';
 import { logger } from '../utils/logger';
 
 interface RoomCodeDisplayProps {
@@ -8,7 +9,9 @@ interface RoomCodeDisplayProps {
   label?: string;
 }
 
-const RoomCodeDisplay: React.FC<RoomCodeDisplayProps> = ({ roomCode, label = 'Room Code' }) => {
+const RoomCodeDisplay: React.FC<RoomCodeDisplayProps> = ({ roomCode, label }) => {
+  const { t } = useLanguage();
+  const displayLabel = label || t('home.roomCode');
   const [copied, setCopied] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -62,7 +65,7 @@ const RoomCodeDisplay: React.FC<RoomCodeDisplayProps> = ({ roomCode, label = 'Ro
       >
         <Box>
           <Typography variant="caption" sx={{ color: '#2c3e50', fontWeight: 600 }}>
-            {label}
+            {displayLabel}
           </Typography>
           <Typography
             variant="h4"
@@ -96,7 +99,7 @@ const RoomCodeDisplay: React.FC<RoomCodeDisplayProps> = ({ roomCode, label = 'Ro
       <Snackbar
         open={copied}
         autoHideDuration={2000}
-        message="Room code copied to clipboard!"
+        message={t('game.roomCodeCopied')}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       />
     </>

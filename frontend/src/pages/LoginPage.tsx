@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { Box, Container, Paper, TextField, Button, Typography, Tabs, Tab } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../i18n';
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const { login, register } = useAuth();
+  const { t } = useLanguage();
   const [tab, setTab] = useState(0);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -22,7 +24,7 @@ const LoginPage: React.FC = () => {
       await login(email, password);
       navigate('/');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Login failed');
+      setError(err.response?.data?.message || t('auth.loginError'));
     } finally {
       setLoading(false);
     }
@@ -37,7 +39,7 @@ const LoginPage: React.FC = () => {
       await register(username, email, password);
       navigate('/');
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Registration failed');
+      setError(err.response?.data?.message || t('auth.registerError'));
     } finally {
       setLoading(false);
     }
@@ -45,16 +47,16 @@ const LoginPage: React.FC = () => {
 
   return (
     <Container component="main" maxWidth="sm">
-      <Box sx={{ 
+      <Box sx={{
         marginTop: { xs: 4, md: 8 },
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
         minHeight: { xs: 'auto', md: '80vh' },
       }}>
-        <Paper 
+        <Paper
           elevation={0}
-          sx={{ 
+          sx={{
             padding: { xs: 3, md: 5 },
             background: '#ffffff',
             border: '2px solid transparent',
@@ -68,9 +70,9 @@ const LoginPage: React.FC = () => {
           }}
         >
           <Box sx={{ textAlign: 'center', mb: 3 }}>
-            <Typography 
-              component="h1" 
-              variant="h4" 
+            <Typography
+              component="h1"
+              variant="h4"
               gutterBottom
               sx={{
                 background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
@@ -82,17 +84,17 @@ const LoginPage: React.FC = () => {
                 mb: 1,
               }}
             >
-              {tab === 0 ? '🔐 Login' : '✨ Register'}
+              {tab === 0 ? `🔐 ${t('auth.login')}` : `✨ ${t('auth.register')}`}
             </Typography>
             <Typography variant="body2" sx={{ color: '#5a6a7a', fontSize: '0.95rem' }}>
-              {tab === 0 ? 'Welcome back!' : 'Create your account'}
+              {tab === 0 ? t('auth.loginTitle') : t('auth.registerTitle')}
             </Typography>
           </Box>
 
-          <Tabs 
-            value={tab} 
-            onChange={(_, newValue) => setTab(newValue)} 
-            sx={{ 
+          <Tabs
+            value={tab}
+            onChange={(_, newValue) => setTab(newValue)}
+            sx={{
               mb: 3,
               '& .MuiTab-root': {
                 textTransform: 'none',
@@ -102,8 +104,8 @@ const LoginPage: React.FC = () => {
               },
             }}
           >
-            <Tab label="Login" />
-            <Tab label="Register" />
+            <Tab label={t('auth.login')} />
+            <Tab label={t('auth.register')} />
           </Tabs>
 
           {tab === 0 ? (
@@ -112,12 +114,12 @@ const LoginPage: React.FC = () => {
                 margin="normal"
                 required
                 fullWidth
-                label="Email"
+                label={t('auth.email')}
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoFocus
-                sx={{ 
+                sx={{
                   mb: 2,
                   '& .MuiOutlinedInput-root': {
                     borderRadius: 2,
@@ -128,11 +130,11 @@ const LoginPage: React.FC = () => {
                 margin="normal"
                 required
                 fullWidth
-                label="Password"
+                label={t('auth.password')}
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                sx={{ 
+                sx={{
                   mb: 2,
                   '& .MuiOutlinedInput-root': {
                     borderRadius: 2,
@@ -140,10 +142,10 @@ const LoginPage: React.FC = () => {
                 }}
               />
               {error && (
-                <Box sx={{ 
-                  mb: 2, 
-                  p: 1.5, 
-                  borderRadius: 2, 
+                <Box sx={{
+                  mb: 2,
+                  p: 1.5,
+                  borderRadius: 2,
                   bgcolor: 'rgba(255, 170, 165, 0.1)',
                   border: '1px solid rgba(255, 170, 165, 0.3)',
                 }}>
@@ -156,8 +158,8 @@ const LoginPage: React.FC = () => {
                 type="submit"
                 fullWidth
                 variant="contained"
-                sx={{ 
-                  mt: 2, 
+                sx={{
+                  mt: 2,
                   mb: 2,
                   py: 1.5,
                   borderRadius: 2,
@@ -167,7 +169,7 @@ const LoginPage: React.FC = () => {
                 }}
                 disabled={loading}
               >
-                {loading ? 'Logging in...' : 'Login'}
+                {loading ? t('common.loading') : t('auth.login')}
               </Button>
             </Box>
           ) : (
@@ -176,11 +178,11 @@ const LoginPage: React.FC = () => {
                 margin="normal"
                 required
                 fullWidth
-                label="Username"
+                label={t('auth.username')}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 autoFocus
-                sx={{ 
+                sx={{
                   mb: 2,
                   '& .MuiOutlinedInput-root': {
                     borderRadius: 2,
@@ -191,11 +193,11 @@ const LoginPage: React.FC = () => {
                 margin="normal"
                 required
                 fullWidth
-                label="Email"
+                label={t('auth.email')}
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                sx={{ 
+                sx={{
                   mb: 2,
                   '& .MuiOutlinedInput-root': {
                     borderRadius: 2,
@@ -206,11 +208,11 @@ const LoginPage: React.FC = () => {
                 margin="normal"
                 required
                 fullWidth
-                label="Password"
+                label={t('auth.password')}
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                sx={{ 
+                sx={{
                   mb: 2,
                   '& .MuiOutlinedInput-root': {
                     borderRadius: 2,
@@ -218,10 +220,10 @@ const LoginPage: React.FC = () => {
                 }}
               />
               {error && (
-                <Box sx={{ 
-                  mb: 2, 
-                  p: 1.5, 
-                  borderRadius: 2, 
+                <Box sx={{
+                  mb: 2,
+                  p: 1.5,
+                  borderRadius: 2,
                   bgcolor: 'rgba(255, 170, 165, 0.1)',
                   border: '1px solid rgba(255, 170, 165, 0.3)',
                 }}>
@@ -234,8 +236,8 @@ const LoginPage: React.FC = () => {
                 type="submit"
                 fullWidth
                 variant="contained"
-                sx={{ 
-                  mt: 2, 
+                sx={{
+                  mt: 2,
                   mb: 2,
                   py: 1.5,
                   borderRadius: 2,
@@ -245,23 +247,23 @@ const LoginPage: React.FC = () => {
                 }}
                 disabled={loading}
               >
-                {loading ? 'Registering...' : 'Register'}
+                {loading ? t('common.loading') : t('auth.register')}
               </Button>
             </Box>
           )}
 
-          <Button 
-            fullWidth 
-            onClick={() => navigate('/')} 
+          <Button
+            fullWidth
+            onClick={() => navigate('/')}
             variant="outlined"
-            sx={{ 
+            sx={{
               mt: 1,
               py: 1.25,
               borderRadius: 2,
               textTransform: 'none',
             }}
           >
-            Continue as Guest
+            {t('auth.continueAsGuest')}
           </Button>
         </Paper>
       </Box>
@@ -270,4 +272,3 @@ const LoginPage: React.FC = () => {
 };
 
 export default LoginPage;
-

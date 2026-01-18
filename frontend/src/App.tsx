@@ -6,7 +6,9 @@ import { Box, GlobalStyles } from '@mui/material';
 import { AuthProvider } from './contexts/AuthContext';
 import { SocketProvider } from './contexts/SocketContext';
 import { GameProvider } from './contexts/GameContext';
+import { LanguageProvider } from './i18n';
 import ErrorBoundary from './components/ErrorBoundary';
+import LanguageSwitcher from './components/LanguageSwitcher';
 import HomePage from './pages/HomePage';
 import LoginPage from './pages/LoginPage';
 import GameRoomPage from './pages/GameRoomPage';
@@ -231,13 +233,16 @@ function App() {
         }}
       >
         <ErrorBoundary>
-          <AuthProvider>
-            <SocketProvider>
-              <GameProvider>
-                <RouterProvider router={router} />
-              </GameProvider>
-            </SocketProvider>
-          </AuthProvider>
+          <LanguageProvider>
+            <LanguageSwitcher />
+            <AuthProvider>
+              <SocketProvider>
+                <GameProvider>
+                  <RouterProvider router={router} />
+                </GameProvider>
+              </SocketProvider>
+            </AuthProvider>
+          </LanguageProvider>
         </ErrorBoundary>
       </Box>
     </ThemeProvider>

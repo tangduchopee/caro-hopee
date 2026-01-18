@@ -2,6 +2,30 @@ import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { Box, Typography, Button, Paper } from '@mui/material';
 import { logger } from '../utils/logger';
 
+// Translation strings for GameErrorBoundary
+// Since this is a class component, we cannot use hooks
+const translations = {
+  en: {
+    title: 'Game Error',
+    description: "Something went wrong with the game. Don't worry, your progress may be saved on the server.",
+    tryAgain: 'Try Again',
+    goHome: 'Go Home',
+    reloadPage: 'Reload Page',
+  },
+  vi: {
+    title: 'Lỗi trò chơi',
+    description: 'Đã xảy ra lỗi với trò chơi. Đừng lo, tiến trình của bạn có thể đã được lưu trên server.',
+    tryAgain: 'Thử lại',
+    goHome: 'Về trang chủ',
+    reloadPage: 'Tải lại trang',
+  },
+};
+
+const getLanguage = (): 'en' | 'vi' => {
+  const stored = localStorage.getItem('app-language');
+  return (stored === 'vi' ? 'vi' : 'en');
+};
+
 interface Props {
   children: ReactNode;
   roomId?: string;
@@ -63,6 +87,9 @@ class GameErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (this.state.hasError) {
+      const lang = getLanguage();
+      const t = translations[lang];
+
       return (
         <Box
           sx={{
@@ -92,7 +119,7 @@ class GameErrorBoundary extends Component<Props, State> {
                 mb: 2,
               }}
             >
-              Game Error
+              {t.title}
             </Typography>
 
             <Typography
@@ -100,7 +127,7 @@ class GameErrorBoundary extends Component<Props, State> {
               color="text.secondary"
               sx={{ mb: 3 }}
             >
-              Something went wrong with the game. Don&apos;t worry, your progress may be saved on the server.
+              {t.description}
             </Typography>
 
             {process.env.NODE_ENV === 'development' && this.state.error && (
@@ -144,7 +171,7 @@ class GameErrorBoundary extends Component<Props, State> {
                   },
                 }}
               >
-                Try Again
+                {t.tryAgain}
               </Button>
 
               <Button
@@ -159,7 +186,7 @@ class GameErrorBoundary extends Component<Props, State> {
                   },
                 }}
               >
-                Go Home
+                {t.goHome}
               </Button>
 
               <Button
@@ -172,7 +199,7 @@ class GameErrorBoundary extends Component<Props, State> {
                   },
                 }}
               >
-                Reload Page
+                {t.reloadPage}
               </Button>
             </Box>
           </Paper>
