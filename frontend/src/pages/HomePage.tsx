@@ -58,6 +58,7 @@ const HomePage: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [showGuestNameDialog, setShowGuestNameDialog] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
 
   // Refs for tracking mounted games and cleanup
   const mountedGamesRef = useRef<Set<string>>(new Set());
@@ -67,6 +68,16 @@ const HomePage: React.FC = () => {
   // Calculate drawer width
   const drawerWidth = isMobile ? DRAWER_WIDTH_EXPANDED : (sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH_EXPANDED);
   const currentGame = GAMES.find(g => g.id === selectedGame);
+
+  // Scroll detection for mobile header
+  useEffect(() => {
+    if (!isMobile) return;
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 10);
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [isMobile]);
 
   // Cleanup stale entries from mountedGamesRef
   useEffect(() => {
@@ -315,33 +326,54 @@ const HomePage: React.FC = () => {
           ml: { md: 0 },
         }}
       >
-        {/* Mobile Menu Button */}
-        {isMobile && (
+        {/* Mobile Header with Hamburger + Logo */}
+        {isMobile && !sidebarOpen && (
           <Box
             sx={{
-              position: 'fixed',
-              top: 16,
-              left: 16,
+              position: 'sticky',
+              top: 0,
+              left: 0,
+              right: 0,
               zIndex: (theme) => theme.zIndex.drawer + 1,
-              display: sidebarOpen ? 'none' : 'block',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              px: 2,
+              py: 2,
+              bgcolor: isScrolled ? '#ffffff' : 'transparent',
+              borderBottom: isScrolled ? '1px solid rgba(126, 200, 227, 0.15)' : 'none',
+              boxShadow: isScrolled ? '0 2px 8px rgba(126, 200, 227, 0.15)' : 'none',
+              transition: 'background-color 0.2s ease, box-shadow 0.2s ease, border-bottom 0.2s ease',
             }}
           >
+            {/* Hamburger - absolute left */}
             <IconButton
               onClick={() => setSidebarOpen(true)}
               sx={{
+                position: 'absolute',
+                left: 16,
                 width: 48,
                 height: 48,
                 background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
                 color: '#ffffff',
-                boxShadow: '0 4px 12px rgba(126, 200, 227, 0.3)',
+                boxShadow: '0 2px 8px rgba(126, 200, 227, 0.25)',
                 '&:hover': {
                   background: 'linear-gradient(135deg, #5ba8c7 0%, #88d6b7 100%)',
-                  boxShadow: '0 6px 16px rgba(126, 200, 227, 0.4)',
                 },
               }}
             >
               <MenuIcon />
             </IconButton>
+            {/* Logo - centered */}
+            <Box
+              component="img"
+              src="/logo/glacier_logo.svg"
+              alt="Glacier"
+              sx={{
+                height: 60,
+                objectFit: 'contain',
+              }}
+            />
           </Box>
         )}
 

@@ -216,59 +216,19 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({ sidebarCollapsed, isMobil
     <Box sx={{
       display: 'flex',
       alignItems: 'center',
+      justifyContent: 'center',
       p: 1.5,
       borderRadius: 2.5,
-      background: 'transparent',
-      border: '1px solid transparent',
-      justifyContent: sidebarCollapsed && !isMobile ? 'center' : 'flex-start',
     }}>
       <Box
+        component="img"
+        src="/logo/glacier_logo.svg"
+        alt="Glacier"
         sx={{
-          width: 48,
-          height: 48,
-          minWidth: 48,
-          flexShrink: 0,
-          background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          boxShadow: '0 4px 12px rgba(126, 200, 227, 0.25)',
-          borderRadius: 2,
+          height: 100,
+          objectFit: 'contain',
         }}
-      >
-        <Typography sx={{ fontSize: '1.5rem' }}>🎮</Typography>
-      </Box>
-      <Box
-        sx={{
-          flex: sidebarCollapsed && !isMobile ? 0 : 1,
-          minWidth: 0,
-          opacity: sidebarCollapsed && !isMobile ? 0 : 1,
-          width: sidebarCollapsed && !isMobile ? 0 : 'auto',
-          marginLeft: sidebarCollapsed && !isMobile ? 0 : 1.5,
-          overflow: 'hidden',
-          transition: 'opacity 0.25s ease, width 0.25s ease, flex 0.25s ease, margin-left 0.25s ease',
-        }}
-      >
-        <Typography
-          variant="h6"
-          sx={{
-            background: 'linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text',
-            fontWeight: 800,
-            fontSize: '1.15rem',
-            lineHeight: 1.2,
-            mb: 0.25,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {t('home.title')}
-        </Typography>
-        <Typography variant="caption" sx={{ color: '#8a9ba8', fontSize: '0.75rem', fontWeight: 500, whiteSpace: 'nowrap' }}>
-          {t('home.subtitle')}
-        </Typography>
-      </Box>
+      />
     </Box>
   </Box>
 );
