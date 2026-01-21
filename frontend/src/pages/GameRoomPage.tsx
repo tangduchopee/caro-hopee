@@ -5,7 +5,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Container, Box, CircularProgress, Typography, useMediaQuery, useTheme } from '@mui/material';
 import { useParams, useNavigate, useBlocker } from 'react-router-dom';
-import { useGame } from '../contexts/GameContext';
+import { useGame, useReaction } from '../contexts/GameContext';
 import { useAuth } from '../contexts/AuthContext';
 import { gameApi } from '../services/api';
 import { useLanguage } from '../i18n';
@@ -15,6 +15,7 @@ import GameControls from '../components/GameControls/GameControls';
 import RoomCodeDisplay from '../components/RoomCodeDisplay';
 import GameErrorBoundary from '../components/GameErrorBoundary';
 import GuestNameDialog from '../components/GuestNameDialog/GuestNameDialog';
+import { GameReactions, ReactionPopup } from '../components/GameReactions';
 import { logger } from '../utils/logger';
 import { hasGuestName } from '../utils/guestName';
 import {
@@ -31,7 +32,8 @@ const GameRoomPage: React.FC = () => {
   const { t } = useLanguage();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('lg'));
-  const { game, players, joinRoom, setGame, myPlayerNumber, leaveRoom, startGame, updateGuestName } = useGame();
+  const { game, players, joinRoom, setGame, myPlayerNumber, leaveRoom, startGame, updateGuestName, sendReaction } = useGame();
+  const { reactions, clearReaction } = useReaction();
   const { isAuthenticated } = useAuth();
   
   // Guest name dialog state
@@ -387,23 +389,36 @@ const GameRoomPage: React.FC = () => {
               <Box sx={{
                 width: '100%',
                 maxWidth: '100%',
-                display: 'block',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 2,
                 position: 'relative',
                 overflow: 'hidden',
               }}>
                 <GameErrorBoundary roomId={roomId}>
                   <GameBoard />
                 </GameErrorBoundary>
+                {/* Reactions - mobile only (desktop shows in right sidebar) */}
+                {game.gameStatus === 'playing' && players.length === 2 && (
+                  <Box sx={{ display: { xs: 'block', lg: 'none' } }}>
+                    <GameReactions
+                      onSendReaction={sendReaction}
+                      disabled={game.gameStatus !== 'playing'}
+                    />
+                  </Box>
+                )}
               </Box>
             )}
           </Box>
         </Box>
 
-        {/* Right Sidebar - Players & Score */}
+        {/* Right Sidebar - Players & Score + Reactions */}
         <PlayersScoreSidebar
           game={game}
           players={players}
           myPlayerNumber={myPlayerNumber}
+          onSendReaction={sendReaction}
         />
 
         {/* Mobile Bottom Sheet */}
@@ -418,6 +433,28 @@ const GameRoomPage: React.FC = () => {
           />
         )}
       </Box>
+
+      {/* Reaction Popups - shows reactions from both players */}
+      {reactions.map((reaction) => {
+        // Calculate position: if multiple reactions, separate them
+        // Self reactions on left, opponent reactions on right (or vice versa based on player number)
+        let position: 'left' | 'right' | 'center' = 'center';
+        if (reactions.length > 1) {
+          // Separate by player number: player1 on left, player2 on right
+          position = reaction.fromPlayerNumber === 1 ? 'left' : 'right';
+        }
+
+        return (
+          <ReactionPopup
+            key={reaction.id}
+            emoji={reaction.emoji}
+            fromName={reaction.fromName}
+            onDismiss={() => clearReaction(reaction.id)}
+            position={position}
+            isSelf={reaction.isSelf}
+          />
+        );
+      })}
 
       {/* Guest Name Dialog */}
       <GuestNameDialog

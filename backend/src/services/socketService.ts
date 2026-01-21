@@ -571,6 +571,64 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
       }
     });
 
+    // Send reaction to opponent
+    socket.on('send-reaction', async (data: { roomId: string; emoji: string }) => {
+      try {
+        const { roomId, emoji } = data;
+
+        // Validate emoji (basic check)
+        if (!emoji || typeof emoji !== 'string') {
+          return;
+        }
+
+        const game = await Game.findOne({ roomId }).lean();
+        if (!game) {
+          return;
+        }
+
+        // Determine which player is sending
+        let fromPlayerNumber: 1 | 2 | null = null;
+        let fromName = '';
+
+        // Check authenticated user
+        if (socketData.userId) {
+          if (game.player1?.toString() === socketData.userId) {
+            fromPlayerNumber = 1;
+            const user = await User.findById(game.player1).select('username').lean();
+            fromName = user?.username || 'Player 1';
+          } else if (game.player2?.toString() === socketData.userId) {
+            fromPlayerNumber = 2;
+            const user = await User.findById(game.player2).select('username').lean();
+            fromName = user?.username || 'Player 2';
+          }
+        }
+
+        // Check guest
+        if (!fromPlayerNumber && socketData.playerId) {
+          if (game.player1GuestId === socketData.playerId) {
+            fromPlayerNumber = 1;
+            fromName = game.player1GuestName || `Guest ${game.player1GuestId.slice(-6)}`;
+          } else if (game.player2GuestId === socketData.playerId) {
+            fromPlayerNumber = 2;
+            fromName = game.player2GuestName || `Guest ${game.player2GuestId.slice(-6)}`;
+          }
+        }
+
+        if (!fromPlayerNumber) {
+          return;
+        }
+
+        // Broadcast to opponent only (not sender)
+        socket.to(roomId).emit('reaction-received', {
+          fromPlayerNumber,
+          emoji,
+          fromName,
+        });
+      } catch (error: any) {
+        console.error('[send-reaction] Error:', error.message);
+      }
+    });
+
     // Disconnect - Optimized to reduce DB queries (fixes Issue #4: N+1 Database Queries)
     // Reduced from 5-7 sequential queries to 1-2 queries using lean() and upsert
     socket.on('disconnect', async () => {

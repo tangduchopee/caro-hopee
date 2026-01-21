@@ -1,9 +1,10 @@
 /**
- * PlayersScoreSidebar - Right sidebar showing players and scores
+ * PlayersScoreSidebar - Right sidebar showing players, scores, and reactions
  */
 import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { useLanguage } from '../../i18n';
+import { GameReactions } from '../GameReactions';
 
 interface Player {
   playerNumber: number;
@@ -24,10 +25,12 @@ interface PlayersScoreSidebarProps {
   game: Game;
   players: Player[];
   myPlayerNumber: number | null;
+  onSendReaction?: (emoji: string) => void;
 }
 
-const PlayersScoreSidebar: React.FC<PlayersScoreSidebarProps> = ({ game, players, myPlayerNumber }) => {
+const PlayersScoreSidebar: React.FC<PlayersScoreSidebarProps> = ({ game, players, myPlayerNumber, onSendReaction }) => {
   const { t } = useLanguage();
+  const showReactions = game.gameStatus === 'playing' && players.length === 2 && onSendReaction;
 
   return (
     <Box
@@ -42,6 +45,7 @@ const PlayersScoreSidebar: React.FC<PlayersScoreSidebarProps> = ({ game, players
         height: { lg: 'calc(100vh - 84px)' },
         maxHeight: { lg: 'calc(100vh - 84px)' },
         overflowY: 'auto',
+        overflowX: 'hidden',
         zIndex: 10,
         '&::-webkit-scrollbar': { width: '6px' },
         '&::-webkit-scrollbar-track': {
@@ -55,6 +59,7 @@ const PlayersScoreSidebar: React.FC<PlayersScoreSidebarProps> = ({ game, players
         },
       }}
     >
+      {/* Players & Score Card */}
       <Box
         sx={{
           p: 2.5,
@@ -93,6 +98,14 @@ const PlayersScoreSidebar: React.FC<PlayersScoreSidebarProps> = ({ game, players
           ))}
         </Box>
       </Box>
+
+      {/* Reactions - only show when game is playing with 2 players */}
+      {showReactions && (
+        <GameReactions
+          onSendReaction={onSendReaction}
+          disabled={game.gameStatus !== 'playing'}
+        />
+      )}
     </Box>
   );
 };

@@ -56,6 +56,22 @@ interface GameActionsContextType {
   clearPendingUndo: () => void;
   refreshPlayers: () => void;
   updateGuestName: (guestName: string) => void;
+  sendReaction: (emoji: string) => void;
+}
+
+// Reaction received (from opponent or self)
+interface ReceivedReaction {
+  id: string; // unique id for React key
+  emoji: string;
+  fromName: string;
+  fromPlayerNumber: 1 | 2;
+  isSelf: boolean; // true if sender is viewing their own reaction
+}
+
+// Reaction context for components that need to listen to reactions
+interface ReactionContextType {
+  reactions: ReceivedReaction[];
+  clearReaction: (id: string) => void;
 }
 
 // Combined type for backward compatibility
@@ -68,6 +84,7 @@ interface GameContextType extends GameStateContextType, GamePlayContextType, Gam
 const GameStateContext = createContext<GameStateContextType | undefined>(undefined);
 const GamePlayContext = createContext<GamePlayContextType | undefined>(undefined);
 const GameActionsContext = createContext<GameActionsContextType | undefined>(undefined);
+const ReactionContext = createContext<ReactionContextType | undefined>(undefined);
 
 // Legacy context for backward compatibility
 const GameContext = createContext<GameContextType | undefined>(undefined);
@@ -94,6 +111,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [pendingUndoMove, setPendingUndoMove] = useState<number | null>(null);
   const [undoRequestSent, setUndoRequestSent] = useState<boolean>(false);
   const [lastMove, setLastMove] = useState<{ row: number; col: number } | null>(null);
+  const [reactions, setReactions] = useState<ReceivedReaction[]>([]);
 
   // Refs for cleanup and latest values
   const rafIdRef = useRef<number | null>(null);
@@ -851,6 +869,28 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     };
 
+    // Handle reaction received from opponent
+    const handleReactionReceived = (data: { fromPlayerNumber: 1 | 2; emoji: string; fromName: string }) => {
+      if (!isMountedRef.current) return;
+
+      // Validate data structure
+      if (!data || !data.emoji || !data.fromName || (data.fromPlayerNumber !== 1 && data.fromPlayerNumber !== 2)) {
+        logger.error('[GameContext] Invalid reaction-received data:', data);
+        return;
+      }
+
+      const newReaction: ReceivedReaction = {
+        id: `reaction-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        emoji: data.emoji,
+        fromName: data.fromName,
+        fromPlayerNumber: data.fromPlayerNumber,
+        isSelf: false,
+      };
+
+      setReactions(prev => [...prev, newReaction]);
+      logger.log('[GameContext] Reaction received:', data);
+    };
+
     socket.on('room-joined', handleRoomJoined);
     socket.on('player-joined', handlePlayerJoined);
     socket.on('player-left', handlePlayerLeft);
@@ -868,6 +908,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     socket.on('marker-updated', handleMarkerUpdated);
     socket.on('guest-name-updated', handleGuestNameUpdated);
     socket.on('achievement-unlocked', handleAchievementUnlocked);
+    socket.on('reaction-received', handleReactionReceived);
 
     return () => {
       isMountedRef.current = false;
@@ -892,6 +933,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       socket.off('marker-updated', handleMarkerUpdated);
       socket.off('guest-name-updated', handleGuestNameUpdated);
       socket.off('achievement-unlocked', handleAchievementUnlocked);
+      socket.off('reaction-received', handleReactionReceived);
     };
   }, [debouncedReloadGame, socketConnected]);
 
@@ -1133,6 +1175,40 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     socket.emit('update-guest-name', { roomId: currentRoomId, guestName: trimmed });
   }, []);
 
+  // Send reaction emoji to opponent
+  const sendReaction = useCallback((emoji: string): void => {
+    const currentRoomId = roomIdRef.current;
+    if (!currentRoomId) return;
+
+    const socket = socketService.getSocket();
+    if (!socket) return;
+
+    // Get current player info for self-display
+    const currentMyPlayerNumber = myPlayerNumberRef.current;
+    const currentPlayers = playersRef.current;
+    const myPlayer = currentPlayers.find(p => p.playerNumber === currentMyPlayerNumber);
+    const myName = myPlayer?.username || 'You';
+
+    // Show self reaction immediately (so sender knows it worked)
+    if (currentMyPlayerNumber) {
+      const selfReaction: ReceivedReaction = {
+        id: `reaction-self-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        emoji,
+        fromName: myName,
+        fromPlayerNumber: currentMyPlayerNumber,
+        isSelf: true,
+      };
+      setReactions(prev => [...prev, selfReaction]);
+    }
+
+    socket.emit('send-reaction', { roomId: currentRoomId, emoji });
+  }, []);
+
+  // Clear a specific reaction by id
+  const clearReaction = useCallback((id: string): void => {
+    setReactions(prev => prev.filter(r => r.id !== id));
+  }, []);
+
   // ============================================================================
   // Derived State
   // ============================================================================
@@ -1176,7 +1252,14 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     clearPendingUndo,
     refreshPlayers,
     updateGuestName,
-  }), [joinRoom, makeMove, requestUndo, approveUndo, rejectUndo, surrender, startGame, newGame, leaveRoom, clearPendingUndo, refreshPlayers, updateGuestName]);
+    sendReaction,
+  }), [joinRoom, makeMove, requestUndo, approveUndo, rejectUndo, surrender, startGame, newGame, leaveRoom, clearPendingUndo, refreshPlayers, updateGuestName, sendReaction]);
+
+  // Reaction context value
+  const reactionValue = useMemo<ReactionContextType>(() => ({
+    reactions,
+    clearReaction,
+  }), [reactions, clearReaction]);
 
   // Combined context for backward compatibility
   const combinedValue = useMemo<GameContextType>(() => ({
@@ -1193,9 +1276,11 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     <GameStateContext.Provider value={stateValue}>
       <GamePlayContext.Provider value={playValue}>
         <GameActionsContext.Provider value={actionsValue}>
-          <GameContext.Provider value={combinedValue}>
-            {children}
-          </GameContext.Provider>
+          <ReactionContext.Provider value={reactionValue}>
+            <GameContext.Provider value={combinedValue}>
+              {children}
+            </GameContext.Provider>
+          </ReactionContext.Provider>
         </GameActionsContext.Provider>
       </GamePlayContext.Provider>
     </GameStateContext.Provider>
@@ -1250,6 +1335,18 @@ export const useGameActions = (): GameActionsContextType => {
   const context = useContext(GameActionsContext);
   if (context === undefined) {
     throw new Error('useGameActions must be used within a GameProvider');
+  }
+  return context;
+};
+
+/**
+ * useReaction - Subscribe to reaction events
+ * Use for: displaying reaction popup when opponent sends a reaction
+ */
+export const useReaction = (): ReactionContextType => {
+  const context = useContext(ReactionContext);
+  if (context === undefined) {
+    throw new Error('useReaction must be used within a GameProvider');
   }
   return context;
 };
