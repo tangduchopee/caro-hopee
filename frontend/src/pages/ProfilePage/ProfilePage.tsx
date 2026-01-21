@@ -24,6 +24,7 @@ import {
   PasswordChangeForm,
   ProfileRankBadge,
   ProfileDetailedStats,
+  ProfileAchievements,
 } from './components';
 
 interface Streaks {
@@ -474,6 +475,25 @@ const ProfilePage: React.FC = () => {
           </Typography>
         </Paper>
       )}
+
+      {/* Achievements Section */}
+      <Paper
+        elevation={0}
+        sx={{
+          p: { xs: 3, md: 4 },
+          mt: 3,
+          background: '#ffffff',
+          border: '2px solid transparent',
+          borderRadius: 4,
+          backgroundImage:
+            'linear-gradient(#ffffff, #ffffff), linear-gradient(135deg, #7ec8e3 0%, #a8e6cf 100%)',
+          backgroundOrigin: 'border-box',
+          backgroundClip: 'padding-box, border-box',
+          boxShadow: '0 12px 40px rgba(126, 200, 227, 0.15)',
+        }}
+      >
+        <ProfileAchievements />
+      </Paper>
 
       {/* Modals */}
       {profile && (

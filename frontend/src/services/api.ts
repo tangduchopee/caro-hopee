@@ -211,6 +211,14 @@ export const userApi = {
     const response = await api.put(`/users/${userId}`, data);
     return response.data;
   },
+  getMyAchievements: async (gameId = 'caro') => {
+    const response = await api.get(`/users/me/achievements?gameId=${gameId}`);
+    return response.data;
+  },
+  getAllAchievements: async () => {
+    const response = await api.get(`/users/achievements`);
+    return response.data;
+  },
 };
 
 export default api;

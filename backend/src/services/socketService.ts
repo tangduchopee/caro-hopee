@@ -4,10 +4,12 @@ import mongoose from 'mongoose';
 import Game from '../models/Game';
 import GameMove from '../models/GameMove';
 import User from '../models/User';
+import GameStats from '../models/GameStats';
 import { makeMove, undoMove } from './gameEngine';
 import { checkWin } from './winChecker';
 import { PlayerNumber } from '../types/game.types';
 import { saveGameHistoryIfFinished } from './gameHistoryService';
+import { checkAndAwardAchievements, isNightTime } from './achievementService';
 
 // Throttle map for global broadcasts (fixes Issue #9: Unthrottled global socket broadcasts)
 const lastBroadcastTime = new Map<string, number>();
@@ -216,7 +218,7 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
           if (finishedGame) {
             // Save history immediately when game finishes
             await saveGameHistoryIfFinished(finishedGame);
-            
+
             // Emit game-finished with all necessary data including winningLine and score
             io.to(roomId).emit('game-finished', {
               winner: finishedGame.winner,
@@ -224,6 +226,40 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
               winningLine: (finishedGame as any).winningLine || undefined,
               score: finishedGame.score,
             });
+
+            // Check achievements for authenticated players
+            const checkAchievementsForPlayer = async (userId: mongoose.Types.ObjectId | null, isWinner: boolean) => {
+              if (!userId) return;
+              try {
+                const stats = await GameStats.findOne({ userId: userId.toString(), gameId: 'caro' });
+                if (stats) {
+                  const gameContext = {
+                    isNightGame: isNightTime() && isWinner,
+                    wasComeback: isWinner && finishedGame.score &&
+                      ((finishedGame.winner === 1 && finishedGame.score.player2 >= 2 && finishedGame.score.player1 <= finishedGame.score.player2) ||
+                       (finishedGame.winner === 2 && finishedGame.score.player1 >= 2 && finishedGame.score.player2 <= finishedGame.score.player1)),
+                    gameId: 'caro',
+                  };
+                  const result = await checkAndAwardAchievements(userId.toString(), stats, gameContext);
+                  if (result.newlyUnlocked.length > 0) {
+                    // Emit achievement notification to the player
+                    io.to(roomId).emit('achievement-unlocked', {
+                      playerId: userId.toString(),
+                      achievementIds: result.newlyUnlocked,
+                      achievements: result.achievements,
+                    });
+                  }
+                }
+              } catch (err) {
+                console.error('[Achievement check error]', err);
+              }
+            };
+
+            // Check achievements for both players (async, don't block)
+            const isPlayer1Winner = finishedGame.winner === 1;
+            const isPlayer2Winner = finishedGame.winner === 2;
+            checkAchievementsForPlayer(finishedGame.player1, isPlayer1Winner);
+            checkAchievementsForPlayer(finishedGame.player2, isPlayer2Winner);
           } else {
             // Fallback if game not found - use updatedGame data
             io.to(roomId).emit('game-finished', {

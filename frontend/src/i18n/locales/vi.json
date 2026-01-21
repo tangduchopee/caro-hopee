@@ -284,7 +284,14 @@
     "playTime": "Thời gian chơi",
     "totalPlayTime": "Tổng thời gian chơi",
     "avgGameDuration": "Thời gian trung bình/ván",
-    "byBoardSize": "Theo kích thước bàn"
+    "byBoardSize": "Theo kích thước bàn",
+    "achievements": "Thành tựu",
+    "unlockedAchievements": "Đã mở khóa",
+    "lockedAchievements": "Chưa mở khóa",
+    "noAchievements": "Chưa có thành tựu. Hãy chơi để đạt được!",
+    "noAchievementsInCategory": "Không có thành tựu trong danh mục này",
+    "unlockedOn": "Mở khóa vào",
+    "achievementUnlocked": "Đã mở thành tựu!"
   },
   "history": {
     "title": "Lịch sử trận đấu",

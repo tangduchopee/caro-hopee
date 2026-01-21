@@ -9,6 +9,7 @@ import { useSocket } from './SocketContext';
 import { gameApi, gameStatsApi } from '../services/api';
 import { saveGuestHistory } from '../utils/guestHistory';
 import { logger } from '../utils/logger';
+import { AchievementDefinition } from '../constants/achievements';
 
 /**
  * GameContext - Split into 3 separate contexts to prevent re-render cascade
@@ -828,6 +829,28 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       logger.log('[GameContext] Guest name updated:', data);
     };
 
+    // Handle achievement unlocked - dispatch custom event for AchievementContext to handle
+    const handleAchievementUnlocked = (data: {
+      playerId: string;
+      achievementIds: string[];
+      achievements: AchievementDefinition[];
+    }) => {
+      if (!isMountedRef.current) return;
+
+      // Check if this is for the current user
+      const currentUser = userRef.current;
+      const currentIsAuth = isAuthenticatedRef.current;
+      if (!currentIsAuth || !currentUser || data.playerId !== currentUser._id) return;
+
+      // Dispatch custom event for AchievementContext to handle
+      if (data.achievements && data.achievements.length > 0) {
+        window.dispatchEvent(new CustomEvent('achievement-unlocked', {
+          detail: { achievements: data.achievements }
+        }));
+        logger.log('[GameContext] Achievement unlocked:', data.achievementIds);
+      }
+    };
+
     socket.on('room-joined', handleRoomJoined);
     socket.on('player-joined', handlePlayerJoined);
     socket.on('player-left', handlePlayerLeft);
@@ -844,6 +867,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     socket.on('game-error', handleGameError);
     socket.on('marker-updated', handleMarkerUpdated);
     socket.on('guest-name-updated', handleGuestNameUpdated);
+    socket.on('achievement-unlocked', handleAchievementUnlocked);
 
     return () => {
       isMountedRef.current = false;
@@ -867,6 +891,7 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       socket.off('game-error', handleGameError);
       socket.off('marker-updated', handleMarkerUpdated);
       socket.off('guest-name-updated', handleGuestNameUpdated);
+      socket.off('achievement-unlocked', handleAchievementUnlocked);
     };
   }, [debouncedReloadGame, socketConnected]);
 

@@ -6,6 +6,8 @@ import {
   getMyProfile,
   updateMyProfile,
   changePassword,
+  getMyAchievements,
+  getAllAchievementsList,
 } from '../controllers/userController';
 import { authMiddleware } from '../middleware/authMiddleware';
 
@@ -15,6 +17,10 @@ const router = Router();
 router.get('/me/profile', authMiddleware, getMyProfile);
 router.put('/me/profile', authMiddleware, updateMyProfile);
 router.put('/me/password', authMiddleware, changePassword);
+router.get('/me/achievements', authMiddleware, getMyAchievements);
+
+// Get all achievements list (public)
+router.get('/achievements', getAllAchievementsList);
 
 // Get user profile
 router.get('/:userId/profile', getUserProfile);

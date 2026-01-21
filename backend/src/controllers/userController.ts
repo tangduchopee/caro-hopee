@@ -4,6 +4,8 @@ import User from '../models/User';
 import GameStats from '../models/GameStats';
 import GameType from '../models/GameType';
 import { AuthRequest } from '../middleware/authMiddleware';
+import { getUserAchievements, getAllAchievements } from '../services/achievementService';
+import { RARITY_COLORS } from '../constants/achievements';
 
 // Valid preset avatar IDs
 const VALID_PRESET_AVATARS = [
@@ -318,6 +320,47 @@ export const changePassword = async (req: AuthRequest, res: Response): Promise<v
     await user.save();
 
     res.json({ message: 'Password changed successfully' });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * Get current user's achievements
+ */
+export const getMyAchievements = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+
+    const gameId = (req.query.gameId as string) || 'caro';
+    const achievements = await getUserAchievements(userId, gameId);
+
+    res.json({
+      ...achievements,
+      rarityColors: RARITY_COLORS,
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * Get all available achievements
+ */
+export const getAllAchievementsList = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const achievements = getAllAchievements();
+
+    res.json({
+      achievements,
+      total: achievements.length,
+      rarityColors: RARITY_COLORS,
+    });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }

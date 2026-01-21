@@ -6,6 +6,7 @@ import { Box, GlobalStyles } from '@mui/material';
 import { AuthProvider } from './contexts/AuthContext';
 import { SocketProvider } from './contexts/SocketContext';
 import { GameProvider } from './contexts/GameContext';
+import { AchievementProvider } from './contexts/AchievementContext';
 import { LanguageProvider } from './i18n';
 import ErrorBoundary from './components/ErrorBoundary';
 import LanguageSwitcher from './components/LanguageSwitcher';
@@ -230,13 +231,15 @@ function App() {
         <ErrorBoundary>
           <LanguageProvider>
             <LanguageSwitcher />
-            <AuthProvider>
-              <SocketProvider>
-                <GameProvider>
-                  <RouterProvider router={router} />
-                </GameProvider>
-              </SocketProvider>
-            </AuthProvider>
+            <AchievementProvider>
+              <AuthProvider>
+                <SocketProvider>
+                  <GameProvider>
+                    <RouterProvider router={router} />
+                  </GameProvider>
+                </SocketProvider>
+              </AuthProvider>
+            </AchievementProvider>
           </LanguageProvider>
         </ErrorBoundary>
       </Box>

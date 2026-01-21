@@ -284,7 +284,14 @@
     "playTime": "Play Time",
     "totalPlayTime": "Total Play Time",
     "avgGameDuration": "Avg Game Duration",
-    "byBoardSize": "By Board Size"
+    "byBoardSize": "By Board Size",
+    "achievements": "Achievements",
+    "unlockedAchievements": "Unlocked",
+    "lockedAchievements": "Locked",
+    "noAchievements": "No achievements yet. Start playing to earn some!",
+    "noAchievementsInCategory": "No achievements in this category",
+    "unlockedOn": "Unlocked on",
+    "achievementUnlocked": "Achievement Unlocked!"
   },
   "history": {
     "title": "Game History",
