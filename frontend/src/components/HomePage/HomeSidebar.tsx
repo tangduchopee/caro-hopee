@@ -1,7 +1,7 @@
 /**
  * HomeSidebar - Sidebar component for game selection and authentication
  */
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -63,6 +63,15 @@ const HomeSidebar: React.FC<HomeSidebarProps> = ({
   const { t } = useLanguage();
   const drawerWidth = isMobile ? DRAWER_WIDTH_EXPANDED : (sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH_EXPANDED);
 
+  // Detect actual mobile device (not just responsive screen)
+  const isMobileDevice = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    const userAgent = navigator.userAgent || navigator.vendor || '';
+    const mobileRegex = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
+    const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    return mobileRegex.test(userAgent) && hasTouch;
+  }, []);
+
   return (
     <Drawer
       variant={isMobile ? 'temporary' : 'permanent'}
@@ -84,9 +93,8 @@ const HomeSidebar: React.FC<HomeSidebarProps> = ({
           position: 'fixed',
           top: 0,
           left: 0,
-          // Mobile: account for safe area at bottom
-          height: isMobile ? 'calc(100vh - env(safe-area-inset-bottom, 0px))' : '100vh',
-          paddingBottom: isMobile ? 'env(safe-area-inset-bottom, 0px)' : 0,
+          // Mobile device: 95vh to avoid phone navigation bar, desktop always 100vh
+          height: isMobileDevice ? '95vh' : '100vh',
           overflowY: 'auto',
           overflowX: 'hidden',
           display: 'flex',
