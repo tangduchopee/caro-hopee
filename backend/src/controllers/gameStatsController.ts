@@ -33,6 +33,11 @@ export const getUserGameStats = async (req: Request, res: Response): Promise<voi
         draws: 0,
         totalScore: 0,
         customStats: {},
+        streaks: { currentWin: 0, currentLoss: 0, bestWin: 0, bestLoss: 0 },
+        byBoardSize: {},
+        totalPlayTime: 0,
+        avgGameDuration: 0,
+        lastTenGames: [],
         lastPlayed: null,
       });
       return;
@@ -47,6 +52,11 @@ export const getUserGameStats = async (req: Request, res: Response): Promise<voi
       draws: stats.draws,
       totalScore: stats.totalScore,
       customStats: Object.fromEntries(stats.customStats || new Map()),
+      streaks: stats.streaks,
+      byBoardSize: Object.fromEntries(stats.byBoardSize || new Map()),
+      totalPlayTime: stats.totalPlayTime,
+      avgGameDuration: stats.avgGameDuration,
+      lastTenGames: stats.lastTenGames,
       lastPlayed: stats.lastPlayed,
       createdAt: stats.createdAt,
       updatedAt: stats.updatedAt,
@@ -90,6 +100,11 @@ export const getMyGameStats = async (req: AuthRequest, res: Response): Promise<v
         losses: 0,
         draws: 0,
         totalScore: 0,
+        streaks: { currentWin: 0, currentLoss: 0, bestWin: 0, bestLoss: 0 },
+        byBoardSize: new Map(),
+        totalPlayTime: 0,
+        avgGameDuration: 0,
+        lastTenGames: [],
       });
       await stats.save();
     }
@@ -103,6 +118,11 @@ export const getMyGameStats = async (req: AuthRequest, res: Response): Promise<v
       draws: stats.draws,
       totalScore: stats.totalScore,
       customStats: Object.fromEntries(stats.customStats || new Map()),
+      streaks: stats.streaks,
+      byBoardSize: Object.fromEntries(stats.byBoardSize || new Map()),
+      totalPlayTime: stats.totalPlayTime,
+      avgGameDuration: stats.avgGameDuration,
+      lastTenGames: stats.lastTenGames,
       lastPlayed: stats.lastPlayed,
       createdAt: stats.createdAt,
       updatedAt: stats.updatedAt,
@@ -120,7 +140,7 @@ export const submitGameResult = async (req: AuthRequest, res: Response): Promise
   try {
     const { gameId } = req.params;
     const userId = req.user?.userId;
-    const { result, score, customStats } = req.body; // result: 'win' | 'loss' | 'draw'
+    const { result, score, customStats, boardSize, gameDuration } = req.body; // result: 'win' | 'loss' | 'draw'
 
     if (!userId) {
       res.status(401).json({ message: 'Unauthorized' });
@@ -153,6 +173,16 @@ export const submitGameResult = async (req: AuthRequest, res: Response): Promise
         losses: 0,
         draws: 0,
         totalScore: 0,
+        streaks: {
+          currentWin: 0,
+          currentLoss: 0,
+          bestWin: 0,
+          bestLoss: 0,
+        },
+        byBoardSize: new Map(),
+        totalPlayTime: 0,
+        avgGameDuration: 0,
+        lastTenGames: [],
       });
     }
 
@@ -177,6 +207,49 @@ export const submitGameResult = async (req: AuthRequest, res: Response): Promise
       } else if (result === 'draw') {
         stats.totalScore += 2;
       }
+    }
+
+    // Update streaks
+    if (result === 'win') {
+      stats.streaks.currentWin += 1;
+      stats.streaks.currentLoss = 0;
+      stats.streaks.bestWin = Math.max(stats.streaks.bestWin, stats.streaks.currentWin);
+    } else if (result === 'loss') {
+      stats.streaks.currentLoss += 1;
+      stats.streaks.currentWin = 0;
+      stats.streaks.bestLoss = Math.max(stats.streaks.bestLoss, stats.streaks.currentLoss);
+    } else {
+      // Draw resets both current streaks
+      stats.streaks.currentWin = 0;
+      stats.streaks.currentLoss = 0;
+    }
+
+    // Update board size stats if provided
+    if (boardSize) {
+      const boardKey = String(boardSize);
+      const currentBoardStats = stats.byBoardSize.get(boardKey) || { wins: 0, losses: 0, draws: 0 };
+      if (result === 'win') {
+        currentBoardStats.wins += 1;
+      } else if (result === 'loss') {
+        currentBoardStats.losses += 1;
+      } else {
+        currentBoardStats.draws += 1;
+      }
+      stats.byBoardSize.set(boardKey, currentBoardStats);
+    }
+
+    // Update play time stats if duration provided (in seconds)
+    if (typeof gameDuration === 'number' && gameDuration > 0) {
+      const totalGames = stats.wins + stats.losses + stats.draws;
+      stats.totalPlayTime += gameDuration;
+      stats.avgGameDuration = Math.round(stats.totalPlayTime / totalGames);
+    }
+
+    // Update lastTenGames
+    const resultCode = result === 'win' ? 'W' : result === 'loss' ? 'L' : 'D';
+    stats.lastTenGames.push(resultCode as 'W' | 'L' | 'D');
+    if (stats.lastTenGames.length > 10) {
+      stats.lastTenGames = stats.lastTenGames.slice(-10);
     }
 
     // Update custom stats if provided
@@ -209,6 +282,11 @@ export const submitGameResult = async (req: AuthRequest, res: Response): Promise
       draws: stats.draws,
       totalScore: stats.totalScore,
       customStats: Object.fromEntries(stats.customStats || new Map()),
+      streaks: stats.streaks,
+      byBoardSize: Object.fromEntries(stats.byBoardSize || new Map()),
+      totalPlayTime: stats.totalPlayTime,
+      avgGameDuration: stats.avgGameDuration,
+      lastTenGames: stats.lastTenGames,
       lastPlayed: stats.lastPlayed,
       updatedAt: stats.updatedAt,
     });

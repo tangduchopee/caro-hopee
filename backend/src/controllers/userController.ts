@@ -1,8 +1,17 @@
 import { Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
 import User from '../models/User';
 import GameStats from '../models/GameStats';
 import GameType from '../models/GameType';
 import { AuthRequest } from '../middleware/authMiddleware';
+
+// Valid preset avatar IDs
+const VALID_PRESET_AVATARS = [
+  'default-1',
+  'animal-1', 'animal-2', 'animal-3', 'animal-4', 'animal-5',
+  'character-1', 'character-2', 'character-3', 'character-4', 'character-5',
+  'abstract-1',
+];
 
 /**
  * Get user profile
@@ -148,6 +157,10 @@ export const getMyProfile = async (req: AuthRequest, res: Response): Promise<voi
       _id: user._id,
       username: user.username,
       email: user.email,
+      displayName: user.displayName,
+      bio: user.bio,
+      avatar: user.avatar || { type: 'preset', value: 'default-1' },
+      settings: user.settings || { language: 'en', emailNotifications: true },
       createdAt: user.createdAt,
       lastLogin: user.lastLogin,
       // Legacy fields for backward compatibility
@@ -156,6 +169,155 @@ export const getMyProfile = async (req: AuthRequest, res: Response): Promise<voi
       draws: user.draws,
       totalScore: user.totalScore,
     });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * Update current user's profile
+ */
+export const updateMyProfile = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+
+    const { displayName, bio, avatar, settings } = req.body;
+
+    // Validate displayName
+    if (displayName !== undefined) {
+      if (typeof displayName !== 'string' || displayName.length > 30) {
+        res.status(400).json({ message: 'Display name must be at most 30 characters' });
+        return;
+      }
+    }
+
+    // Validate bio
+    if (bio !== undefined) {
+      if (typeof bio !== 'string' || bio.length > 200) {
+        res.status(400).json({ message: 'Bio must be at most 200 characters' });
+        return;
+      }
+    }
+
+    // Validate avatar
+    if (avatar !== undefined) {
+      if (!avatar.type || !['preset', 'gravatar'].includes(avatar.type)) {
+        res.status(400).json({ message: 'Invalid avatar type' });
+        return;
+      }
+      if (avatar.type === 'preset' && !VALID_PRESET_AVATARS.includes(avatar.value)) {
+        res.status(400).json({ message: 'Invalid preset avatar' });
+        return;
+      }
+      if (avatar.type === 'gravatar' && typeof avatar.value !== 'string') {
+        res.status(400).json({ message: 'Invalid gravatar hash' });
+        return;
+      }
+    }
+
+    // Validate settings
+    if (settings !== undefined) {
+      if (settings.language && !['en', 'vi'].includes(settings.language)) {
+        res.status(400).json({ message: 'Invalid language setting' });
+        return;
+      }
+    }
+
+    // Build update object
+    const updateData: any = {};
+    if (displayName !== undefined) updateData.displayName = displayName.trim() || null;
+    if (bio !== undefined) updateData.bio = bio.trim() || null;
+    if (avatar !== undefined) updateData.avatar = avatar;
+    if (settings !== undefined) {
+      updateData.settings = settings;
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!user) {
+      res.status(404).json({ message: 'User not found' });
+      return;
+    }
+
+    res.json({
+      _id: user._id,
+      username: user.username,
+      email: user.email,
+      displayName: user.displayName,
+      bio: user.bio,
+      avatar: user.avatar || { type: 'preset', value: 'default-1' },
+      settings: user.settings || { language: 'en', emailNotifications: true },
+      createdAt: user.createdAt,
+      lastLogin: user.lastLogin,
+      wins: user.wins,
+      losses: user.losses,
+      draws: user.draws,
+      totalScore: user.totalScore,
+    });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * Change current user's password
+ */
+export const changePassword = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+
+    if (!userId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+
+    const { currentPassword, newPassword } = req.body;
+
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      res.status(400).json({ message: 'Current password and new password are required' });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      res.status(400).json({ message: 'New password must be at least 6 characters' });
+      return;
+    }
+
+    // Get user with password
+    const user = await User.findById(userId);
+
+    if (!user) {
+      res.status(404).json({ message: 'User not found' });
+      return;
+    }
+
+    // Verify current password
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+
+    if (!isMatch) {
+      res.status(400).json({ message: 'Current password is incorrect' });
+      return;
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    // Update password
+    user.password = hashedPassword;
+    await user.save();
+
+    res.json({ message: 'Password changed successfully' });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }

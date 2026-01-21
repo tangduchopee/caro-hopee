@@ -4,10 +4,17 @@ import {
   getUserGames,
   getUserGameStats,
   getMyProfile,
+  updateMyProfile,
+  changePassword,
 } from '../controllers/userController';
 import { authMiddleware } from '../middleware/authMiddleware';
 
 const router = Router();
+
+// Current user routes (protected) - MUST be before :userId routes
+router.get('/me/profile', authMiddleware, getMyProfile);
+router.put('/me/profile', authMiddleware, updateMyProfile);
+router.put('/me/password', authMiddleware, changePassword);
 
 // Get user profile
 router.get('/:userId/profile', getUserProfile);
@@ -17,8 +24,5 @@ router.get('/:userId/games', getUserGames);
 
 // Get user stats for a specific game
 router.get('/:userId/games/:gameId', getUserGameStats);
-
-// Get current user's profile (protected)
-router.get('/me/profile', authMiddleware, getMyProfile);
 
 export default router;

@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { API_BASE_URL } from '../utils/constants';
-import { AuthResponse, User } from '../types/user.types';
+import { AuthResponse, User, UpdateProfileData, ChangePasswordData } from '../types/user.types';
 import { Game, GameHistory } from '../types/game.types';
 
 const api = axios.create({
@@ -197,6 +197,14 @@ export const userApi = {
   },
   getMyProfile: async (): Promise<User> => {
     const response = await api.get(`/users/me/profile`);
+    return response.data;
+  },
+  updateMyProfile: async (data: UpdateProfileData): Promise<User> => {
+    const response = await api.put(`/users/me/profile`, data);
+    return response.data;
+  },
+  changePassword: async (data: ChangePasswordData): Promise<{ message: string }> => {
+    const response = await api.put(`/users/me/password`, data);
     return response.data;
   },
   updateProfile: async (userId: string, data: Partial<User>): Promise<User> => {

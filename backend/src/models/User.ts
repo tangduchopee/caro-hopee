@@ -1,9 +1,24 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
+export interface IUserAvatar {
+  type: 'preset' | 'gravatar';
+  value: string; // preset ID or gravatar email hash
+}
+
+export interface IUserSettings {
+  language: 'en' | 'vi';
+  emailNotifications: boolean;
+}
+
 export interface IUser extends Document {
   username: string;
   email: string;
   password: string;
+  // Profile fields
+  displayName?: string;
+  bio?: string;
+  avatar: IUserAvatar;
+  settings: IUserSettings;
   // Legacy fields - kept for backward compatibility, will be deprecated
   wins?: number;
   losses?: number;
@@ -33,6 +48,39 @@ const UserSchema: Schema = new Schema({
     type: String,
     required: true,
     minlength: 6,
+  },
+  // Profile fields
+  displayName: {
+    type: String,
+    trim: true,
+    maxlength: 30,
+  },
+  bio: {
+    type: String,
+    trim: true,
+    maxlength: 200,
+  },
+  avatar: {
+    type: {
+      type: String,
+      enum: ['preset', 'gravatar'],
+      default: 'preset',
+    },
+    value: {
+      type: String,
+      default: 'default-1',
+    },
+  },
+  settings: {
+    language: {
+      type: String,
+      enum: ['en', 'vi'],
+      default: 'en',
+    },
+    emailNotifications: {
+      type: Boolean,
+      default: true,
+    },
   },
   // Legacy fields - kept for backward compatibility during migration
   wins: {

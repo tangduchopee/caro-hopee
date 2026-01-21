@@ -1,5 +1,18 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
+export interface IStreaks {
+  currentWin: number;
+  currentLoss: number;
+  bestWin: number;
+  bestLoss: number;
+}
+
+export interface IBoardSizeStats {
+  wins: number;
+  losses: number;
+  draws: number;
+}
+
 export interface IGameStats extends Document {
   userId: mongoose.Types.ObjectId;
   gameId: string;
@@ -8,6 +21,12 @@ export interface IGameStats extends Document {
   draws: number;
   totalScore: number;
   customStats: Map<string, any>;
+  // Detailed stats
+  streaks: IStreaks;
+  byBoardSize: Map<string, IBoardSizeStats>;
+  totalPlayTime: number; // seconds
+  avgGameDuration: number; // seconds
+  lastTenGames: ('W' | 'L' | 'D')[];
   lastPlayed: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -48,6 +67,35 @@ const GameStatsSchema: Schema = new Schema({
     type: Map,
     of: Schema.Types.Mixed,
     default: new Map(),
+  },
+  // Detailed stats
+  streaks: {
+    currentWin: { type: Number, default: 0 },
+    currentLoss: { type: Number, default: 0 },
+    bestWin: { type: Number, default: 0 },
+    bestLoss: { type: Number, default: 0 },
+  },
+  byBoardSize: {
+    type: Map,
+    of: {
+      wins: { type: Number, default: 0 },
+      losses: { type: Number, default: 0 },
+      draws: { type: Number, default: 0 },
+    },
+    default: new Map(),
+  },
+  totalPlayTime: {
+    type: Number,
+    default: 0, // seconds
+  },
+  avgGameDuration: {
+    type: Number,
+    default: 0, // seconds
+  },
+  lastTenGames: {
+    type: [String],
+    enum: ['W', 'L', 'D'],
+    default: [],
   },
   lastPlayed: {
     type: Date,
