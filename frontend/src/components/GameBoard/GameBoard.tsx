@@ -116,109 +116,149 @@ const GameBoard: React.FC = () => {
 
   return (
     <Box
-      ref={containerRef}
       sx={{
-        // Fill available width but never exceed it
+        // Outer wrapper for shadow overlays
+        position: 'relative',
         width: '100%',
         maxWidth: '100%',
-        display: 'block',
         mb: 3,
-        // Desktop: center the inline-block Paper, Mobile: left align for scroll
-        textAlign: { xs: 'left', md: 'center' },
-        // Enable horizontal scroll for board larger than container
-        overflowX: 'auto',
-        overflowY: 'visible',
-        WebkitOverflowScrolling: 'touch',
-        // Inner shadow to indicate scrollable area (mobile only)
-        boxShadow: {
-          xs: 'inset 8px 0 8px -8px rgba(126, 200, 227, 0.3), inset -8px 0 8px -8px rgba(126, 200, 227, 0.3)',
-          md: 'none'
-        },
-        // Scrollbar styling
-        '&::-webkit-scrollbar': { height: '8px' },
-        '&::-webkit-scrollbar-track': { background: 'rgba(126, 200, 227, 0.1)', borderRadius: '4px' },
-        '&::-webkit-scrollbar-thumb': { background: 'rgba(126, 200, 227, 0.3)', borderRadius: '4px' },
-        scrollbarWidth: 'thin',
-        scrollbarColor: 'rgba(126, 200, 227, 0.3) rgba(126, 200, 227, 0.1)',
+        // Clip shadow overlays at edges
+        overflow: 'hidden',
+        borderRadius: { xs: 4, md: 0 },
       }}
     >
-      <Paper
-        elevation={0}
+      {/* Left shadow overlay - mobile only */}
+      <Box
         sx={{
-          p: { xs: 2, md: 4 },
-          background: '#ffffff',
-          borderRadius: 4,
-          boxShadow: '0 12px 40px rgba(126, 200, 227, 0.15)',
-          border: '2px solid rgba(126, 200, 227, 0.2)',
-          transition: 'all 0.3s ease',
-          // Inline-block: Paper sizes based on grid content, allows scroll
-          display: 'inline-block',
+          display: { xs: 'block', md: 'none' },
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: '16px',
+          background: 'linear-gradient(to right, rgba(126, 200, 227, 0.2), transparent)',
+          pointerEvents: 'none',
+          zIndex: 10,
+          borderTopLeftRadius: 16,
+          borderBottomLeftRadius: 16,
+        }}
+      />
+      {/* Right shadow overlay - mobile only */}
+      <Box
+        sx={{
+          display: { xs: 'block', md: 'none' },
+          position: 'absolute',
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: '16px',
+          background: 'linear-gradient(to left, rgba(126, 200, 227, 0.2), transparent)',
+          pointerEvents: 'none',
+          zIndex: 10,
+          borderTopRightRadius: 16,
+          borderBottomRightRadius: 16,
+        }}
+      />
+      {/* Scrollable container */}
+      <Box
+        ref={containerRef}
+        sx={{
+          // Fill available width but never exceed it
+          width: '100%',
+          maxWidth: '100%',
+          display: 'block',
+          // Desktop: center the inline-block Paper, Mobile: left align for scroll
+          textAlign: { xs: 'left', md: 'center' },
+          // Enable horizontal scroll for board larger than container
+          overflowX: 'auto',
+          overflowY: 'visible',
+          WebkitOverflowScrolling: 'touch',
+          // Scrollbar styling
+          '&::-webkit-scrollbar': { height: '8px' },
+          '&::-webkit-scrollbar-track': { background: 'rgba(126, 200, 227, 0.1)', borderRadius: '4px' },
+          '&::-webkit-scrollbar-thumb': { background: 'rgba(126, 200, 227, 0.3)', borderRadius: '4px' },
+          scrollbarWidth: 'thin',
+          scrollbarColor: 'rgba(126, 200, 227, 0.3) rgba(126, 200, 227, 0.1)',
         }}
       >
-        <Box
+        <Paper
+          elevation={0}
           sx={{
-            position: 'relative',
-            display: 'grid',
-            // Fixed cell size - grid auto-sizes to fit all cells
-            gridTemplateColumns: `repeat(${game.boardSize}, ${cellSize}px)`,
-            gap: 0,
-            border: '3px solid #7ec8e3',
-            borderRadius: 2,
-            // IMPORTANT: No overflow hidden - let border show naturally
-            boxShadow: 'inset 0 2px 8px rgba(126, 200, 227, 0.1)',
+            p: { xs: 2, md: 4 },
+            background: '#ffffff',
+            borderRadius: 4,
+            boxShadow: '0 12px 40px rgba(126, 200, 227, 0.15)',
+            border: '2px solid rgba(126, 200, 227, 0.2)',
+            transition: 'all 0.3s ease',
+            // Inline-block: Paper sizes based on grid content, allows scroll
+            display: 'inline-block',
           }}
-          ref={boardRef}
         >
-          {Array.isArray(game.board) && game.board.map((row, rowIndex) =>
-            Array.isArray(row) ? row.map((cell, colIndex) => {
-              const cellKey = `${rowIndex}-${colIndex}`;
-              const isWinningCell = winningCellsSet.has(cellKey);
-              const isLastMoveCell = lastMove !== null && lastMove.row === rowIndex && lastMove.col === colIndex;
-              return (
-                <GameCell
-                  key={cellKey}
-                  value={cell}
-                  row={rowIndex}
-                  col={colIndex}
-                  onClick={handleCellClick}
-                  disabled={!isMyTurn || game.gameStatus !== 'playing'}
-                  boardSize={game.boardSize}
-                  cellSize={cellSize}
-                  isLastMove={isLastMoveCell}
-                  isWinningCell={isWinningCell}
-                  player1Marker={game.player1Marker}
-                  player2Marker={game.player2Marker}
+          <Box
+            sx={{
+              position: 'relative',
+              display: 'grid',
+              // Fixed cell size - grid auto-sizes to fit all cells
+              gridTemplateColumns: `repeat(${game.boardSize}, ${cellSize}px)`,
+              gap: 0,
+              border: '3px solid #7ec8e3',
+              borderRadius: 2,
+              // IMPORTANT: No overflow hidden - let border show naturally
+              boxShadow: 'inset 0 2px 8px rgba(126, 200, 227, 0.1)',
+            }}
+            ref={boardRef}
+          >
+            {Array.isArray(game.board) && game.board.map((row, rowIndex) =>
+              Array.isArray(row) ? row.map((cell, colIndex) => {
+                const cellKey = `${rowIndex}-${colIndex}`;
+                const isWinningCell = winningCellsSet.has(cellKey);
+                const isLastMoveCell = lastMove !== null && lastMove.row === rowIndex && lastMove.col === colIndex;
+                return (
+                  <GameCell
+                    key={cellKey}
+                    value={cell}
+                    row={rowIndex}
+                    col={colIndex}
+                    onClick={handleCellClick}
+                    disabled={!isMyTurn || game.gameStatus !== 'playing'}
+                    boardSize={game.boardSize}
+                    cellSize={cellSize}
+                    isLastMove={isLastMoveCell}
+                    isWinningCell={isWinningCell}
+                    player1Marker={game.player1Marker}
+                    player2Marker={game.player2Marker}
+                  />
+                );
+              }) : null
+            )}
+            {/* Winning line overlay */}
+            {game.winningLine && game.winningLine.length >= 2 && (
+              <svg
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  pointerEvents: 'none',
+                  zIndex: 10,
+                }}
+              >
+                <line
+                  x1={(game.winningLine[0].col + 0.5) * cellSize}
+                  y1={(game.winningLine[0].row + 0.5) * cellSize}
+                  x2={(game.winningLine[game.winningLine.length - 1].col + 0.5) * cellSize}
+                  y2={(game.winningLine[game.winningLine.length - 1].row + 0.5) * cellSize}
+                  stroke="#ff6b6b"
+                  strokeWidth={4}
+                  strokeLinecap="round"
+                  opacity={0.8}
                 />
-              );
-            }) : null
-          )}
-          {/* Winning line overlay */}
-          {game.winningLine && game.winningLine.length >= 2 && (
-            <svg
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                pointerEvents: 'none',
-                zIndex: 10,
-              }}
-            >
-              <line
-                x1={(game.winningLine[0].col + 0.5) * cellSize}
-                y1={(game.winningLine[0].row + 0.5) * cellSize}
-                x2={(game.winningLine[game.winningLine.length - 1].col + 0.5) * cellSize}
-                y2={(game.winningLine[game.winningLine.length - 1].row + 0.5) * cellSize}
-                stroke="#ff6b6b"
-                strokeWidth={4}
-                strokeLinecap="round"
-                opacity={0.8}
-              />
-            </svg>
-          )}
-        </Box>
-      </Paper>
+              </svg>
+            )}
+          </Box>
+        </Paper>
+      </Box>
     </Box>
   );
 };
