@@ -513,7 +513,11 @@ const AuthSection: React.FC<AuthSectionProps> = ({
   t,
   onClose,
 }) => (
-  <Box sx={{ p: 2 }}>
+  <Box sx={{
+    p: 2,
+    // Add safe area padding for mobile devices with navigation bar
+    pb: isMobile ? 'calc(16px + env(safe-area-inset-bottom, 0px))' : 2,
+  }}>
     {/* Toggle Button - Desktop only */}
     {!isMobile && (
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2, position: 'relative', height: 36 }}>

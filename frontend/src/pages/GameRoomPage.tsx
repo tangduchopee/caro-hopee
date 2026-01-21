@@ -283,8 +283,7 @@ const GameRoomPage: React.FC = () => {
           position: 'relative',
           // Hide all overflow at page level - scroll only in GameBoard
           overflow: 'hidden',
-          contain: 'layout style paint',
-          transform: 'translateZ(0)',
+          // Note: Removed transform and contain to allow fixed positioning to work correctly
           '&::before': {
             content: '""',
             position: 'absolute',
@@ -294,7 +293,6 @@ const GameRoomPage: React.FC = () => {
             height: 300,
             borderRadius: '50%',
             background: 'radial-gradient(circle, rgba(126, 200, 227, 0.1) 0%, transparent 70%)',
-            transform: 'translateZ(0)',
             pointerEvents: 'none',
             zIndex: 0,
           },
@@ -307,7 +305,6 @@ const GameRoomPage: React.FC = () => {
             height: 400,
             borderRadius: '50%',
             background: 'radial-gradient(circle, rgba(168, 230, 207, 0.1) 0%, transparent 70%)',
-            transform: 'translateZ(0)',
             pointerEvents: 'none',
             zIndex: 0,
           },
