@@ -353,7 +353,7 @@ const GameRoomPage: React.FC = () => {
             alignItems: { xs: 'flex-start', lg: 'center' },
             minHeight: { xs: 'calc(100vh - 80px)', lg: 'calc(100vh - 40px)' },
             // Mobile: top padding for top bar, Desktop: normal padding
-            pt: { xs: '90px', lg: 3 },
+            pt: { xs: '15vh', lg: 3 },
             pb: { xs: 2, lg: 3 },
             width: { lg: 'calc(100% - 656px)' },
             overflow: 'hidden',
