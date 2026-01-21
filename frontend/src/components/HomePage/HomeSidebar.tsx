@@ -94,7 +94,8 @@ const HomeSidebar: React.FC<HomeSidebarProps> = ({
           top: 0,
           left: 0,
           // Mobile device: 95vh to avoid phone navigation bar, desktop always 100vh
-          height: isMobileDevice ? '95vh' : '100vh',
+          height: '100vh',
+          paddingBottom: isMobileDevice ? '5vh' : 0,
           overflowY: 'auto',
           overflowX: 'hidden',
           display: 'flex',
