@@ -4,6 +4,7 @@ import { leaderboardApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../i18n';
 import { logger } from '../utils/logger';
+import PageHeader from '../components/PageHeader';
 
 interface LeaderboardEntry {
   rank: number;
@@ -74,16 +75,21 @@ const LeaderboardPage: React.FC = () => {
 
   if (loading) {
     return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
-          <CircularProgress sx={{ color: '#7ec8e3' }} />
-        </Box>
-      </Container>
+      <>
+        <PageHeader hideLeaderboardLink />
+        <Container maxWidth="md" sx={{ py: 8 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+            <CircularProgress sx={{ color: '#7ec8e3' }} />
+          </Box>
+        </Container>
+      </>
     );
   }
 
   return (
-    <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
+    <>
+      <PageHeader hideLeaderboardLink />
+      <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
       <Box sx={{ mb: 4, textAlign: 'center' }}>
         <Typography
           variant="h3"
@@ -216,6 +222,7 @@ const LeaderboardPage: React.FC = () => {
         </Table>
       </TableContainer>
     </Container>
+    </>
   );
 };
 

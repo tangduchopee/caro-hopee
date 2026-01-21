@@ -26,6 +26,7 @@ import {
   ProfileDetailedStats,
   ProfileAchievements,
 } from './components';
+import PageHeader from '../../components/PageHeader';
 
 interface Streaks {
   currentWin: number;
@@ -164,7 +165,9 @@ const ProfilePage: React.FC = () => {
   const totalScoreAllGames = gameStats?.games.reduce((sum, game) => sum + game.totalScore, 0) || 0;
 
   return (
-    <Container maxWidth="md" sx={{ py: { xs: 4, md: 6 } }}>
+    <>
+      <PageHeader hideProfileLink />
+      <Container maxWidth="md" sx={{ py: { xs: 4, md: 6 } }}>
       {/* Page Title */}
       <Box sx={{ mb: 4, textAlign: 'center' }}>
         <Typography
@@ -511,6 +514,7 @@ const ProfilePage: React.FC = () => {
         </>
       )}
     </Container>
+    </>
   );
 };
 

@@ -15,6 +15,13 @@
     "or": "hoặc",
     "and": "và"
   },
+  "nav": {
+    "home": "Trang chủ",
+    "profile": "Hồ sơ",
+    "leaderboard": "Bảng xếp hạng",
+    "login": "Đăng nhập",
+    "logout": "Đăng xuất"
+  },
   "auth": {
     "login": "Đăng nhập",
     "register": "Đăng ký",
@@ -31,6 +38,8 @@
     "registerSuccess": "Đăng ký thành công!",
     "loginError": "Đăng nhập thất bại",
     "registerError": "Đăng ký thất bại",
+    "emailAlreadyRegistered": "Email đã được đăng ký",
+    "usernameAlreadyTaken": "Tên đăng nhập đã tồn tại",
     "guestPlay": "Chơi với tư cách khách",
     "continueAsGuest": "Tiếp tục với tư cách khách"
   },

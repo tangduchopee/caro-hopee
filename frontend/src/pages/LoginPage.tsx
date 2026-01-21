@@ -3,6 +3,7 @@ import { Box, Container, Paper, TextField, Button, Typography, Tabs, Tab } from 
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../i18n';
+import PageHeader from '../components/PageHeader';
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -46,7 +47,9 @@ const LoginPage: React.FC = () => {
   };
 
   return (
-    <Container component="main" maxWidth="sm">
+    <>
+      <PageHeader showBackButton={false} />
+      <Container component="main" maxWidth="sm">
       <Box sx={{
         marginTop: { xs: 4, md: 8 },
         display: 'flex',
@@ -268,6 +271,7 @@ const LoginPage: React.FC = () => {
         </Paper>
       </Box>
     </Container>
+    </>
   );
 };
 

@@ -15,6 +15,13 @@
     "or": "or",
     "and": "and"
   },
+  "nav": {
+    "home": "Home",
+    "profile": "Profile",
+    "leaderboard": "Leaderboard",
+    "login": "Login",
+    "logout": "Logout"
+  },
   "auth": {
     "login": "Login",
     "register": "Register",
@@ -31,6 +38,8 @@
     "registerSuccess": "Registration successful!",
     "loginError": "Login failed",
     "registerError": "Registration failed",
+    "emailAlreadyRegistered": "Email already registered",
+    "usernameAlreadyTaken": "Username already taken",
     "guestPlay": "Play as Guest",
     "continueAsGuest": "Continue as Guest"
   },
