@@ -69,28 +69,18 @@ const HomePage: React.FC = () => {
   const drawerWidth = isMobile ? DRAWER_WIDTH_EXPANDED : (sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH_EXPANDED);
   const currentGame = GAMES.find(g => g.id === selectedGame);
 
-  // Scroll detection for mobile header with hysteresis to prevent jitter
+  // Scroll detection for mobile header - simple threshold, header height is fixed
   useEffect(() => {
     if (!isMobile) return;
-    let lastScrollY = window.scrollY;
 
     const handleScroll = () => {
-      const currentScrollY = window.scrollY;
-      // Hysteresis: different thresholds for scroll down vs scroll up
-      // This prevents rapid toggling when at the threshold
-      if (!isScrolled && currentScrollY > 50) {
-        // Scroll down past threshold - collapse header
-        setIsScrolled(true);
-      } else if (isScrolled && currentScrollY < 20) {
-        // Scroll up past lower threshold - expand header
-        setIsScrolled(false);
-      }
-      lastScrollY = currentScrollY;
+      // Simple check - header height doesn't change, only logo inside animates
+      setIsScrolled(window.scrollY > 30);
     };
 
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [isMobile, isScrolled]);
+  }, [isMobile]);
 
   // Cleanup stale entries from mountedGamesRef
   useEffect(() => {
@@ -339,7 +329,7 @@ const HomePage: React.FC = () => {
           ml: { md: 0 },
         }}
       >
-        {/* Mobile Header with Hamburger + Logo */}
+        {/* Mobile Header with Hamburger + Logo - Fixed height to prevent jitter */}
         {isMobile && !sidebarOpen && (
           <Box
             sx={{
@@ -348,15 +338,16 @@ const HomePage: React.FC = () => {
               left: 0,
               right: 0,
               zIndex: (theme) => theme.zIndex.drawer + 1,
+              // Fixed height - prevents content shift when logo animates
+              height: 80,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               px: 2,
-              py: 2,
               bgcolor: isScrolled ? '#ffffff' : 'transparent',
               borderBottom: isScrolled ? '1px solid rgba(126, 200, 227, 0.15)' : 'none',
               boxShadow: isScrolled ? '0 2px 8px rgba(126, 200, 227, 0.15)' : 'none',
-              transition: 'background-color 0.2s ease, box-shadow 0.2s ease, border-bottom 0.2s ease',
+              transition: 'background-color 0.2s ease, box-shadow 0.2s ease',
             }}
           >
             {/* Hamburger - absolute left */}
@@ -377,15 +368,17 @@ const HomePage: React.FC = () => {
             >
               <MenuIcon />
             </IconButton>
-            {/* Logo - centered */}
+            {/* Logo - centered, uses transform for smooth animation without layout shift */}
             <Box
               component="img"
               src="/logo/glacier_logo.svg"
               alt="Glacier"
               sx={{
-                height: isScrolled ? 60 : 100,
+                height: 70,
                 objectFit: 'contain',
-                transition: 'height 0.3s ease',
+                // Use transform scale instead of height change to prevent layout recalculation
+                transform: isScrolled ? 'scale(0.75)' : 'scale(1)',
+                transition: 'transform 0.25s ease',
               }}
             />
           </Box>

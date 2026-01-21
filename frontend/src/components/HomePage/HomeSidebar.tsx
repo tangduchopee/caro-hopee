@@ -217,7 +217,6 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({ sidebarCollapsed, isMobil
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      p: 1.5,
       borderRadius: 2.5,
     }}>
       <Box
