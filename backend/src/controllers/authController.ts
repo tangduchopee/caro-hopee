@@ -14,24 +14,26 @@ export const register = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Check if email already registered
-    const existingEmail = await User.findOne({ email });
-    if (existingEmail) {
-      res.status(400).json({
-        message: 'Email already registered',
-        field: 'email'
-      });
-      return;
-    }
+    // FIX MEDIUM-3: Batch email/username checks into single query with $or
+    const existingUser = await User.findOne({
+      $or: [{ email }, { username }]
+    }).select('email username').lean();
 
-    // Check if username already taken
-    const existingUsername = await User.findOne({ username });
-    if (existingUsername) {
-      res.status(400).json({
-        message: 'Username already taken',
-        field: 'username'
-      });
-      return;
+    if (existingUser) {
+      if (existingUser.email === email) {
+        res.status(400).json({
+          message: 'Email already registered',
+          field: 'email'
+        });
+        return;
+      }
+      if (existingUser.username === username) {
+        res.status(400).json({
+          message: 'Username already taken',
+          field: 'username'
+        });
+        return;
+      }
     }
 
     // Hash password

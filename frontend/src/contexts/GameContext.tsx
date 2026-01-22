@@ -113,6 +113,29 @@ export const GameProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [lastMove, setLastMove] = useState<{ row: number; col: number } | null>(null);
   const [reactions, setReactions] = useState<ReceivedReaction[]>([]);
 
+  // FIX C1: Auto-cleanup reactions array to prevent unbounded memory growth
+  // Reactions older than 5 seconds are automatically removed
+  useEffect(() => {
+    const cleanupInterval = setInterval(() => {
+      setReactions(prev => {
+        if (prev.length === 0) return prev;
+        const now = Date.now();
+        // Filter out reactions older than 5 seconds based on timestamp in ID
+        const filtered = prev.filter(r => {
+          // ID format: "reaction-{timestamp}-{random}" or "reaction-self-{timestamp}-{random}"
+          const parts = r.id.split('-');
+          const timestampIndex = parts[1] === 'self' ? 2 : 1;
+          const timestamp = parseInt(parts[timestampIndex], 10);
+          return !isNaN(timestamp) && (now - timestamp) < 5000;
+        });
+        // Only update if something was filtered
+        return filtered.length !== prev.length ? filtered : prev;
+      });
+    }, 2000); // Check every 2 seconds
+
+    return () => clearInterval(cleanupInterval);
+  }, []);
+
   // Refs for cleanup and latest values
   const rafIdRef = useRef<number | null>(null);
   const isMountedRef = useRef(true); // Track if component is mounted (for RAF race condition fix)

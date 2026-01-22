@@ -42,18 +42,28 @@ export const AchievementProvider: React.FC<{ children: ReactNode }> = ({ childre
     setQueue((prev) => [...prev.slice(0, 2), ...items.slice(0, 3)]); // Max 3 new items
   }, []);
 
+  // FIX C1: Use functional state updates to avoid infinite loop
+  // processQueue now has stable reference (empty deps) and uses functional updates
   const processQueue = useCallback(() => {
-    if (queue.length > 0 && !current) {
-      const next = queue[0];
-      setCurrent(next);
-      setQueue((prev) => prev.slice(1));
-      setOpen(true);
-    }
-  }, [queue, current]);
+    setQueue((prevQueue) => {
+      if (prevQueue.length > 0) {
+        setCurrent((prevCurrent) => {
+          if (!prevCurrent) {
+            setOpen(true);
+            return prevQueue[0];
+          }
+          return prevCurrent;
+        });
+        return prevQueue.slice(1);
+      }
+      return prevQueue;
+    });
+  }, []);
 
+  // Effect now has stable dependency and won't cause infinite loops
   React.useEffect(() => {
     processQueue();
-  }, [processQueue]);
+  }, [processQueue, queue.length]); // Only re-run when queue length changes
 
   // Listen for achievement-unlocked custom events from GameContext
   React.useEffect(() => {

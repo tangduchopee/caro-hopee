@@ -2,7 +2,6 @@ import React, { memo, useCallback } from 'react';
 import { Paper, Box, Typography, Chip, Button, CircularProgress, Tooltip } from '@mui/material';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import LockIcon from '@mui/icons-material/Lock';
-import LockOpenIcon from '@mui/icons-material/LockOpen';
 import { formatRelativeTime } from '../../utils/timeFormat';
 import { useLanguage } from '../../i18n';
 
@@ -99,10 +98,14 @@ const GameCard: React.FC<GameCardProps> = memo(({ game, joiningGameId, onJoin })
         '@media (hover: hover)': {
           willChange: 'transform',
         },
+        // Position relative to allow z-index stacking
+        position: 'relative',
         '&:hover': canJoin ? {
           boxShadow: '0 8px 24px rgba(126, 200, 227, 0.2)',
           transform: 'translateY(-4px)',
           borderColor: 'rgba(126, 200, 227, 0.4)',
+          // Increase z-index on hover to appear above other cards
+          zIndex: 10,
         } : {},
       }}
     >

@@ -137,7 +137,16 @@ const PasswordChangeForm: React.FC<PasswordChangeFormProps> = ({ open, onClose }
         >
           {t('profile.changePassword')}
         </Typography>
-        <IconButton onClick={handleClose} size="small">
+        <IconButton
+          onClick={handleClose}
+          size="small"
+          sx={{
+            color: '#ffaaa5',
+            '&:hover': {
+              background: 'rgba(255, 170, 165, 0.15)',
+            },
+          }}
+        >
           <CloseIcon />
         </IconButton>
       </DialogTitle>
@@ -156,7 +165,7 @@ const PasswordChangeForm: React.FC<PasswordChangeFormProps> = ({ open, onClose }
         )}
 
         {/* Current Password */}
-        <Box sx={{ mb: 2 }}>
+        <Box sx={{ my: 2 }}>
           <TextField
             fullWidth
             type={showCurrentPassword ? 'text' : 'password'}
@@ -260,7 +269,18 @@ const PasswordChangeForm: React.FC<PasswordChangeFormProps> = ({ open, onClose }
       </DialogContent>
 
       <DialogActions sx={{ px: 3, pb: 3 }}>
-        <Button onClick={handleClose} sx={{ color: '#5a6a7a' }}>
+        <Button
+          onClick={handleClose}
+          variant="outlined"
+          sx={{
+            borderColor: 'rgba(255, 170, 165, 0.5)',
+            color: '#ffaaa5',
+            '&:hover': {
+              borderColor: 'rgba(255, 170, 165, 0.8)',
+              background: 'rgba(255, 170, 165, 0.1)',
+            },
+          }}
+        >
           {t('common.cancel')}
         </Button>
         <Button

@@ -135,9 +135,10 @@ const GameHistorySchema: Schema = new Schema({
 });
 
 // Compound indexes for efficient queries
-GameHistorySchema.index({ player1: 1, finishedAt: -1 });
-GameHistorySchema.index({ player2: 1, finishedAt: -1 });
-GameHistorySchema.index({ player1GuestId: 1, finishedAt: -1 });
-GameHistorySchema.index({ player2GuestId: 1, finishedAt: -1 });
+// FIX MEDIUM-1: Add _id to make covering indexes for cleanup queries
+GameHistorySchema.index({ player1: 1, finishedAt: -1, _id: 1 });
+GameHistorySchema.index({ player2: 1, finishedAt: -1, _id: 1 });
+GameHistorySchema.index({ player1GuestId: 1, finishedAt: -1, _id: 1 });
+GameHistorySchema.index({ player2GuestId: 1, finishedAt: -1, _id: 1 });
 
 export default mongoose.model<IGameHistory>('GameHistory', GameHistorySchema);

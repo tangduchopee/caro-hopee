@@ -88,7 +88,20 @@ const PasswordDialog: React.FC<PasswordDialogProps> = ({
         />
       </DialogContent>
       <DialogActions>
-        <Button onClick={handleCancel}>{t('common.cancel') || 'Cancel'}</Button>
+        <Button
+          onClick={handleCancel}
+          variant="outlined"
+          sx={{
+            borderColor: 'rgba(255, 170, 165, 0.5)',
+            color: '#ffaaa5',
+            '&:hover': {
+              borderColor: 'rgba(255, 170, 165, 0.8)',
+              background: 'rgba(255, 170, 165, 0.1)',
+            },
+          }}
+        >
+          {t('common.cancel') || 'Cancel'}
+        </Button>
         <Button onClick={handleConfirm} variant="contained" disabled={!password.trim()}>
           {t('common.confirm') || 'Confirm'}
         </Button>

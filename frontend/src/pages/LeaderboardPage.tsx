@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Container, Box, Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, Tab, CircularProgress } from '@mui/material';
 import { leaderboardApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -34,7 +34,8 @@ const LeaderboardPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [userRank, setUserRank] = useState<{ rank: number | null; totalPlayers: number; userStats: any } | null>(null);
 
-  const loadLeaderboard = async (): Promise<void> => {
+  // FIX MEDIUM-1: Wrap in useCallback to prevent recreation on every render
+  const loadLeaderboard = useCallback(async (): Promise<void> => {
     try {
       setLoading(true);
       const data = await leaderboardApi.getLeaderboard(gameId, period, 50, 0);
@@ -44,9 +45,9 @@ const LeaderboardPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [gameId, period]);
 
-  const loadUserRank = async (): Promise<void> => {
+  const loadUserRank = useCallback(async (): Promise<void> => {
     if (!user) return;
     try {
       const rankData = await leaderboardApi.getUserRank(gameId, user._id, period);
@@ -54,19 +55,17 @@ const LeaderboardPage: React.FC = () => {
     } catch (error) {
       logger.error('Failed to load user rank:', error);
     }
-  };
+  }, [gameId, user, period]);
 
   useEffect(() => {
     loadLeaderboard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameId, period]);
+  }, [loadLeaderboard]);
 
   useEffect(() => {
     if (user) {
       loadUserRank();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, gameId, period]);
+  }, [user, loadUserRank]);
 
   const handlePeriodChange = (_event: React.SyntheticEvent, newValue: number): void => {
     const periods: ('daily' | 'weekly' | 'all-time')[] = ['daily', 'weekly', 'all-time'];

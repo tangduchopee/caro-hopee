@@ -1,7 +1,7 @@
 /**
  * HomeSidebar - Sidebar component for game selection and authentication
  */
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Box,
   Typography,
@@ -26,6 +26,7 @@ import { Link } from 'react-router-dom';
 import { useLanguage } from '../../i18n';
 import { GAMES, GameItem } from './home-page-types';
 import { getGuestName } from '../../utils/guestName';
+import LogoutConfirmationDialog from '../LogoutConfirmationDialog/LogoutConfirmationDialog';
 
 interface HomeSidebarProps {
   isMobile: boolean;
@@ -61,7 +62,21 @@ const HomeSidebar: React.FC<HomeSidebarProps> = ({
   onEditGuestName,
 }) => {
   const { t } = useLanguage();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const drawerWidth = isMobile ? DRAWER_WIDTH_EXPANDED : (sidebarCollapsed ? DRAWER_WIDTH_COLLAPSED : DRAWER_WIDTH_EXPANDED);
+
+  const handleLogoutClick = () => {
+    setShowLogoutConfirm(true);
+  };
+
+  const handleLogoutConfirm = () => {
+    setShowLogoutConfirm(false);
+    logout();
+  };
+
+  const handleLogoutCancel = () => {
+    setShowLogoutConfirm(false);
+  };
 
   // Detect actual mobile device (not just responsive screen)
   const isMobileDevice = useMemo(() => {
@@ -162,7 +177,7 @@ const HomeSidebar: React.FC<HomeSidebarProps> = ({
       <AuthSection
         isAuthenticated={isAuthenticated}
         user={user}
-        logout={logout}
+        logout={handleLogoutClick}
         onHistoryClick={() => {
           onHistoryClick();
           if (isMobile) {
@@ -179,11 +194,17 @@ const HomeSidebar: React.FC<HomeSidebarProps> = ({
           }
         }}
       />
+      <LogoutConfirmationDialog
+        open={showLogoutConfirm}
+        onConfirm={handleLogoutConfirm}
+        onCancel={handleLogoutCancel}
+      />
     </Drawer>
   );
 };
 
-// Header sub-component
+// FIX C3: Memoize all sub-components to prevent cascade re-renders
+// Header sub-component - memoized
 interface SidebarHeaderProps {
   sidebarCollapsed: boolean;
   isMobile: boolean;
@@ -191,7 +212,7 @@ interface SidebarHeaderProps {
   onClose?: () => void;
 }
 
-const SidebarHeader: React.FC<SidebarHeaderProps> = ({ sidebarCollapsed, isMobile, t, onClose }) => (
+const SidebarHeader: React.FC<SidebarHeaderProps> = React.memo(({ sidebarCollapsed, isMobile, t, onClose }) => (
   <Box sx={{ p: 2, pb: 2, position: 'relative' }}>
     {/* Close button for mobile */}
     {isMobile && onClose && (
@@ -234,9 +255,10 @@ const SidebarHeader: React.FC<SidebarHeaderProps> = ({ sidebarCollapsed, isMobil
       />
     </Box>
   </Box>
-);
+));
+SidebarHeader.displayName = 'SidebarHeader';
 
-// Game List sub-component
+// Game List sub-component - memoized
 interface GameListProps {
   games: GameItem[];
   selectedGame: string;
@@ -247,7 +269,7 @@ interface GameListProps {
   t: (key: string) => string;
 }
 
-const GameList: React.FC<GameListProps> = ({ games, selectedGame, setSelectedGame, sidebarCollapsed, isMobile, isAuthenticated, t }) => (
+const GameList: React.FC<GameListProps> = React.memo(({ games, selectedGame, setSelectedGame, sidebarCollapsed, isMobile, isAuthenticated, t }) => (
   <List sx={{
     px: 2,
     py: 2,
@@ -398,9 +420,10 @@ const GameList: React.FC<GameListProps> = ({ games, selectedGame, setSelectedGam
       </ListItem>
     ))}
   </List>
-);
+));
+GameList.displayName = 'GameList';
 
-// User Name Display - Separate component above divider to prevent layout jumping
+// User Name Display - Separate component above divider to prevent layout jumping - memoized
 interface UserNameDisplayProps {
   isAuthenticated: boolean;
   user: { username?: string } | null;
@@ -410,7 +433,7 @@ interface UserNameDisplayProps {
   onEditGuestName?: () => void;
 }
 
-const UserNameDisplay: React.FC<UserNameDisplayProps> = ({
+const UserNameDisplay: React.FC<UserNameDisplayProps> = React.memo(({
   isAuthenticated,
   user,
   sidebarCollapsed,
@@ -484,9 +507,10 @@ const UserNameDisplay: React.FC<UserNameDisplayProps> = ({
       </Box>
     </Box>
   );
-};
+});
+UserNameDisplay.displayName = 'UserNameDisplay';
 
-// Auth Section sub-component - Contains only toggle button and action buttons
+// Auth Section sub-component - Contains only toggle button and action buttons - memoized
 interface AuthSectionProps {
   isAuthenticated: boolean;
   user: { username?: string } | null;
@@ -499,7 +523,7 @@ interface AuthSectionProps {
   onClose?: () => void;
 }
 
-const AuthSection: React.FC<AuthSectionProps> = ({
+const AuthSection: React.FC<AuthSectionProps> = React.memo(({
   isAuthenticated,
   user,
   logout,
@@ -553,9 +577,10 @@ const AuthSection: React.FC<AuthSectionProps> = ({
       />
     )}
   </Box>
-);
+));
+AuthSection.displayName = 'AuthSection';
 
-// Authenticated user section - Only action buttons (user info moved to UserNameDisplay)
+// Authenticated user section - Only action buttons (user info moved to UserNameDisplay) - memoized
 interface AuthenticatedSectionProps {
   logout: () => void;
   onHistoryClick: () => void;
@@ -565,7 +590,7 @@ interface AuthenticatedSectionProps {
   onClose?: () => void;
 }
 
-const AuthenticatedSection: React.FC<AuthenticatedSectionProps> = ({
+const AuthenticatedSection: React.FC<AuthenticatedSectionProps> = React.memo(({
   logout,
   onHistoryClick,
   sidebarCollapsed,
@@ -646,9 +671,10 @@ const AuthenticatedSection: React.FC<AuthenticatedSectionProps> = ({
       </Box>
     </>
   );
-};
+});
+AuthenticatedSection.displayName = 'AuthenticatedSection';
 
-// Unauthenticated user section - Only action buttons (guest name moved to UserNameDisplay)
+// Unauthenticated user section - Only action buttons (guest name moved to UserNameDisplay) - memoized
 interface UnauthenticatedSectionProps {
   onHistoryClick: () => void;
   sidebarCollapsed: boolean;
@@ -657,7 +683,7 @@ interface UnauthenticatedSectionProps {
   onClose?: () => void;
 }
 
-const UnauthenticatedSection: React.FC<UnauthenticatedSectionProps> = ({
+const UnauthenticatedSection: React.FC<UnauthenticatedSectionProps> = React.memo(({
   onHistoryClick,
   sidebarCollapsed,
   isMobile,
@@ -727,7 +753,8 @@ const UnauthenticatedSection: React.FC<UnauthenticatedSectionProps> = ({
       </Button>
     </Box>
   );
-};
+});
+UnauthenticatedSection.displayName = 'UnauthenticatedSection';
 
 export default HomeSidebar;
 export { DRAWER_WIDTH_EXPANDED, DRAWER_WIDTH_COLLAPSED };

@@ -86,8 +86,13 @@ export const saveGameHistoryIfFinished = async (game: IGame): Promise<boolean> =
     await historyRecord.save();
     console.log(`[saveGameHistoryIfFinished] History saved immediately for roomId: ${game.roomId}, player1: ${game.player1}, player2: ${game.player2}`);
 
-    // Clean up old history (keep only last 50 for each authenticated player)
-    await cleanupOldHistory(game.player1, null, game.player2, null);
+    // FIX HIGH-2: Run cleanup in background (non-blocking) to not block game finish events
+    // Using setImmediate to defer cleanup to next event loop iteration
+    setImmediate(() => {
+      cleanupOldHistory(game.player1, null, game.player2, null).catch(err => {
+        console.error('[saveGameHistoryIfFinished] Background cleanup error:', err);
+      });
+    });
 
     return true;
   } catch (error: any) {

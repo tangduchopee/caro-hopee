@@ -142,7 +142,16 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
             ← {t('history.backToList')}
           </Button>
         )}
-        <IconButton onClick={onClose} size="small">
+        <IconButton
+          onClick={onClose}
+          size="small"
+          sx={{
+            color: '#ffaaa5',
+            '&:hover': {
+              background: 'rgba(255, 170, 165, 0.15)',
+            },
+          }}
+        >
           <CloseIcon />
         </IconButton>
       </DialogTitle>
@@ -175,7 +184,20 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ open, onClose }) => {
       </DialogContent>
 
       <DialogActions sx={{ p: 2, borderTop: '1px solid rgba(126, 200, 227, 0.1)' }}>
-        <Button onClick={onClose} variant="contained" sx={{ textTransform: 'none', fontWeight: 600 }}>
+        <Button
+          onClick={onClose}
+          variant="outlined"
+          sx={{
+            textTransform: 'none',
+            fontWeight: 600,
+            borderColor: 'rgba(255, 170, 165, 0.5)',
+            color: '#ffaaa5',
+            '&:hover': {
+              borderColor: 'rgba(255, 170, 165, 0.8)',
+              background: 'rgba(255, 170, 165, 0.1)',
+            },
+          }}
+        >
           {t('common.close')}
         </Button>
       </DialogActions>

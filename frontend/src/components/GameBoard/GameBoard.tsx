@@ -10,7 +10,16 @@ const GameBoard: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const [cellSize, setCellSize] = useState(50);
-  
+
+  // FIX H1: Use refs for latest values to avoid recreating handleCellClick on every move
+  // This prevents all 400 cells from re-rendering when game state changes
+  const gameRef = useRef(game);
+  const isMyTurnRef = useRef(isMyTurn);
+
+  // Keep refs in sync with state
+  useEffect(() => { gameRef.current = game; }, [game]);
+  useEffect(() => { isMyTurnRef.current = isMyTurn; }, [isMyTurn]);
+
   // Memoize winning cells to avoid recalculating on every render
   const winningCellsSet = useMemo(() => {
     if (!game?.winningLine) return new Set<string>();
@@ -21,13 +30,17 @@ const GameBoard: React.FC = () => {
     );
   }, [game?.winningLine]);
 
+  // FIX H1: handleCellClick now uses refs, so it has stable dependencies
+  // This ensures React.memo on GameCell works correctly - cells only re-render when their value changes
   const handleCellClick = useCallback((row: number, col: number): void => {
+    const currentGame = gameRef.current;
+    const currentIsMyTurn = isMyTurnRef.current;
     // Only allow clicks if it's my turn, game is playing, and cell is empty
-    if (!game) return;
-    if (isMyTurn && game.gameStatus === 'playing' && game.board[row]?.[col] === 0) {
+    if (!currentGame) return;
+    if (currentIsMyTurn && currentGame.gameStatus === 'playing' && currentGame.board[row]?.[col] === 0) {
       makeMove(row, col);
     }
-  }, [game, isMyTurn, makeMove]);
+  }, [makeMove]); // makeMove is from context and is stable
 
   // Fix H2: Added isMounted check to prevent state updates after unmount
   useEffect(() => {

@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import { Box, Typography, Paper, IconButton } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
-import { useGame } from '../../contexts/GameContext';
+// FIX C4: Use split contexts to prevent re-renders on every move
+// useGame subscribes to entire context, causing 361+ re-renders per game
+// Split contexts only trigger re-renders when their specific values change
+import { useGameState, useGamePlay, useGameActions } from '../../contexts/GameContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../i18n';
 import { getGuestId } from '../../utils/guestId';
@@ -9,7 +12,10 @@ import { getGuestName } from '../../utils/guestName';
 import GuestNameDialog from '../GuestNameDialog/GuestNameDialog';
 
 const GameInfo: React.FC = () => {
-  const { game, players, currentPlayer, myPlayerNumber, updateGuestName } = useGame();
+  // FIX C4: Split context subscriptions for optimal performance
+  const { game, players, myPlayerNumber } = useGameState(); // Rarely changes
+  const { currentPlayer } = useGamePlay(); // Changes on each move (needed for status text)
+  const { updateGuestName } = useGameActions(); // Never changes
   const { isAuthenticated } = useAuth();
   const { t } = useLanguage();
   const [showGuestNameDialog, setShowGuestNameDialog] = useState(false);

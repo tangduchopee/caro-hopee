@@ -52,9 +52,11 @@ export const getUserGames = async (req: Request, res: Response): Promise<void> =
   try {
     const { userId } = req.params;
 
+    // FIX MEDIUM-2: Add .limit() to prevent unbounded query
     const stats = await GameStats.find({ userId })
       .populate('userId', 'username')
-      .sort({ lastPlayed: -1 });
+      .sort({ lastPlayed: -1 })
+      .limit(50); // Reasonable limit - users won't have 50+ different games
 
     // Get game type info
     const gameIds = [...new Set(stats.map((s) => s.gameId))];

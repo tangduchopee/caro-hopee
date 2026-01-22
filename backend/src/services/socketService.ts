@@ -67,15 +67,25 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
         // Socket only handles joining the socket room for real-time communication
         // Player assignment is handled by the REST API joinGame endpoint
 
-        // Emit current game state - only include players that actually exist and are set
+        // FIX B1: Batch fetch users in single query instead of sequential User.findById calls
+        // This reduces 2 sequential queries to 1 batch query
         const players: any[] = [];
-        
-        // Add player1 if exists - populate username from User model
+        const userIdsToFetch: mongoose.Types.ObjectId[] = [];
+
+        if (game.player1) userIdsToFetch.push(game.player1 as mongoose.Types.ObjectId);
+        if (game.player2) userIdsToFetch.push(game.player2 as mongoose.Types.ObjectId);
+
+        // Batch fetch all users in single query
+        const users = userIdsToFetch.length > 0
+          ? await User.find({ _id: { $in: userIdsToFetch } }).select('_id username').lean()
+          : [];
+        const userMap = new Map(users.map(u => [u._id.toString(), u.username]));
+
+        // Add player1 if exists
         if (game.player1) {
-          const user1 = await User.findById(game.player1).select('username').lean();
           players.push({
             id: game.player1.toString(),
-            username: user1?.username || 'Player 1',
+            username: userMap.get(game.player1.toString()) || 'Player 1',
             isGuest: false,
             playerNumber: 1,
           });
@@ -87,13 +97,12 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
             playerNumber: 1,
           });
         }
-        
-        // Only add player2 if they actually exist (not null/undefined) - populate username from User model
+
+        // Add player2 if exists
         if (game.player2) {
-          const user2 = await User.findById(game.player2).select('username').lean();
           players.push({
             id: game.player2.toString(),
-            username: user2?.username || 'Player 2',
+            username: userMap.get(game.player2.toString()) || 'Player 2',
             isGuest: false,
             playerNumber: 2,
           });
@@ -119,6 +128,7 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
     });
 
     // Make move
+    // FIX B3: Optimized to reduce duplicate game queries from 3 to 1
     socket.on('make-move', async (data: { roomId: string; row: number; col: number }) => {
       try {
         const { roomId, row, col } = data;
@@ -128,13 +138,10 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
           return;
         }
 
-        // Debug logging reduced for production performance (fixes Issue #16)
-
         // Determine player number - check both authenticated and guest
         let player: PlayerNumber = 1;
         let playerDetermined = false;
-        
-        
+
         // First check authenticated user
         if (socketData.userId) {
           if (game.player1?.toString() === socketData.userId) {
@@ -145,9 +152,8 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
             playerDetermined = true;
           }
         }
-        
+
         // Check guest ID - this is the most common case for guest players
-        // Check playerId first (most reliable)
         if (!playerDetermined && socketData.playerId) {
           if (game.player1GuestId && game.player1GuestId === socketData.playerId) {
             player = 1;
@@ -157,7 +163,7 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
             playerDetermined = true;
           }
         }
-        
+
         // Also check if authenticated user matches guest IDs (edge case)
         if (!playerDetermined && socketData.userId) {
           if (game.player1GuestId && game.player1GuestId === socketData.userId.toString()) {
@@ -168,35 +174,33 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
             playerDetermined = true;
           }
         }
-        
+
         if (!playerDetermined) {
           console.error('[socketService] Could not determine player');
           socket.emit('game-error', { message: 'Could not determine player number. Please rejoin the room.' });
           return;
         }
 
+        // makeMove mutates the game object in place and saves it
         const result = await makeMove(game, row, col, player);
         if (!result.success) {
           socket.emit('move-validated', { valid: false, message: result.message });
           return;
         }
 
-        // Reload game to get the latest state after makeMove
-        const updatedGame = await Game.findOne({ roomId });
-        if (!updatedGame) {
-          socket.emit('game-error', { message: 'Game not found after move' });
-          return;
-        }
+        // FIX B3: Reuse the mutated game object instead of querying again
+        // makeMove already updated and saved the game, so we can use it directly
+        // The game object now has the latest board, currentPlayer, gameStatus, etc.
 
         // Get the move that was just made
         const move = await GameMove.findOne({
-          gameId: updatedGame._id,
+          gameId: game._id,
           row,
           col,
           player,
         }).sort({ timestamp: -1 });
 
-        // Emit to all in room
+        // Emit to all in room using the already-updated game object
         io.to(roomId).emit('move-made', {
           move: move ? {
             _id: move._id.toString(),
@@ -208,13 +212,14 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
             timestamp: move.timestamp.toISOString(),
             isUndone: move.isUndone,
           } : null,
-          board: updatedGame.board,
-          currentPlayer: updatedGame.currentPlayer,
+          board: game.board,
+          currentPlayer: game.currentPlayer,
         });
 
-        if (updatedGame.gameStatus === 'finished') {
-          // Reload game from database to ensure we have the full document with winningLine
-          const finishedGame = await Game.findOne({ roomId });
+        if (game.gameStatus === 'finished') {
+          // FIX B3: Use the already-loaded game object instead of querying again
+          // The winningLine was set by checkWin in makeMove
+          const finishedGame = game;
           if (finishedGame) {
             // Save history immediately when game finishes
             await saveGameHistoryIfFinished(finishedGame);
@@ -260,14 +265,6 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
             const isPlayer2Winner = finishedGame.winner === 2;
             checkAchievementsForPlayer(finishedGame.player1, isPlayer1Winner);
             checkAchievementsForPlayer(finishedGame.player2, isPlayer2Winner);
-          } else {
-            // Fallback if game not found - use updatedGame data
-            io.to(roomId).emit('game-finished', {
-              winner: updatedGame.winner,
-              reason: updatedGame.winner === 'draw' ? 'Draw' : `Player ${updatedGame.winner} wins!`,
-              winningLine: (updatedGame as any).winningLine || undefined,
-              score: updatedGame.score,
-            });
           }
         }
       } catch (error: any) {
@@ -586,24 +583,21 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
           return;
         }
 
+        // FIX B2: Batch fetch users instead of sequential User.findById calls per reaction
         // Determine which player is sending
         let fromPlayerNumber: 1 | 2 | null = null;
         let fromName = '';
 
-        // Check authenticated user
+        // Check authenticated user first (determine player number without DB query)
         if (socketData.userId) {
           if (game.player1?.toString() === socketData.userId) {
             fromPlayerNumber = 1;
-            const user = await User.findById(game.player1).select('username').lean();
-            fromName = user?.username || 'Player 1';
           } else if (game.player2?.toString() === socketData.userId) {
             fromPlayerNumber = 2;
-            const user = await User.findById(game.player2).select('username').lean();
-            fromName = user?.username || 'Player 2';
           }
         }
 
-        // Check guest
+        // Check guest if not authenticated
         if (!fromPlayerNumber && socketData.playerId) {
           if (game.player1GuestId === socketData.playerId) {
             fromPlayerNumber = 1;
@@ -611,6 +605,15 @@ export const setupSocketHandlers = (io: SocketIOServer): void => {
           } else if (game.player2GuestId === socketData.playerId) {
             fromPlayerNumber = 2;
             fromName = game.player2GuestName || `Guest ${game.player2GuestId.slice(-6)}`;
+          }
+        }
+
+        // Only fetch user from DB if we need the name and it's an authenticated user
+        if (fromPlayerNumber && !fromName) {
+          const userIdToFetch = fromPlayerNumber === 1 ? game.player1 : game.player2;
+          if (userIdToFetch) {
+            const user = await User.findById(userIdToFetch).select('username').lean();
+            fromName = user?.username || `Player ${fromPlayerNumber}`;
           }
         }
 

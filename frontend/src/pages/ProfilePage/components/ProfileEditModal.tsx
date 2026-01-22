@@ -128,7 +128,16 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
         >
           {t('profile.editProfile')}
         </Typography>
-        <IconButton onClick={onClose} size="small">
+        <IconButton
+          onClick={onClose}
+          size="small"
+          sx={{
+            color: '#ffaaa5',
+            '&:hover': {
+              background: 'rgba(255, 170, 165, 0.15)',
+            },
+          }}
+        >
           <CloseIcon />
         </IconButton>
       </DialogTitle>
@@ -142,19 +151,13 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
 
         {/* Avatar Section */}
         <Box sx={{ mb: 3 }}>
-          <Typography
-            variant="subtitle2"
-            sx={{ mb: 1.5, color: '#5a6a7a', fontWeight: 600 }}
-          >
-            {t('profile.avatar')}
-          </Typography>
-
           {!showAvatarSelector ? (
             <Box
               sx={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 2,
+                pt: 2,
               }}
             >
               <AvatarDisplay avatar={avatar} email={profile.email} size={80} />
@@ -183,7 +186,16 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
               <Button
                 size="small"
                 onClick={() => setShowAvatarSelector(false)}
-                sx={{ mt: 1, color: '#5a6a7a' }}
+                variant="outlined"
+                sx={{
+                  mt: 1,
+                  borderColor: 'rgba(255, 170, 165, 0.5)',
+                  color: '#ffaaa5',
+                  '&:hover': {
+                    borderColor: 'rgba(255, 170, 165, 0.8)',
+                    background: 'rgba(255, 170, 165, 0.1)',
+                  },
+                }}
               >
                 {t('common.close')}
               </Button>
@@ -246,7 +258,18 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
       </DialogContent>
 
       <DialogActions sx={{ px: 3, pb: 3 }}>
-        <Button onClick={onClose} sx={{ color: '#5a6a7a' }}>
+        <Button
+          onClick={onClose}
+          variant="outlined"
+          sx={{
+            borderColor: 'rgba(255, 170, 165, 0.5)',
+            color: '#ffaaa5',
+            '&:hover': {
+              borderColor: 'rgba(255, 170, 165, 0.8)',
+              background: 'rgba(255, 170, 165, 0.1)',
+            },
+          }}
+        >
           {t('common.cancel')}
         </Button>
         <Button

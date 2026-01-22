@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import { Box } from '@mui/material';
 
 interface GameCellProps {
@@ -27,7 +27,9 @@ const GameCell: React.FC<GameCellProps> = ({
   player1Marker = null,
   player2Marker = null,
 }) => {
-  const getCellContent = () => {
+  // FIX H5: Memoize cell content to avoid recalculating on every render
+  // With 400 cells, this saves 400 function calls per render
+  const cellContent = useMemo(() => {
     if (value === 1) {
       const marker = player1Marker || '✕';
       // Safety check: ensure marker is a string
@@ -80,13 +82,10 @@ const GameCell: React.FC<GameCellProps> = ({
       return <span style={{ position: 'relative', zIndex: 1 }}>{marker}</span>;
     }
     return '';
-  };
+  }, [value, player1Marker, player2Marker, cellSize]);
 
-  const getCellColor = () => {
-    if (value === 1) return '#5ba8c7'; // Sky blue for Player 1
-    if (value === 2) return '#88d6b7'; // Mint green for Player 2
-    return 'transparent';
-  };
+  // FIX H6: Inline cell color calculation (simple ternary is faster than function call)
+  const cellColor = value === 1 ? '#5ba8c7' : value === 2 ? '#88d6b7' : 'transparent';
 
   const handleClick = (): void => {
     if (!disabled && value === 0) {
@@ -136,7 +135,7 @@ const GameCell: React.FC<GameCellProps> = ({
         },
         fontSize: `${cellSize * 0.65}px`,
         fontWeight: 800,
-        color: getCellColor(),
+        color: cellColor,
         textShadow: value !== 0 ? '0 2px 4px rgba(0,0,0,0.1)' : 'none',
         '&::before': value !== 0 ? {
           content: '""',
@@ -161,7 +160,7 @@ const GameCell: React.FC<GameCellProps> = ({
         },
       }}
     >
-      {getCellContent()}
+      {cellContent}
     </Box>
   );
 };

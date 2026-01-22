@@ -14,6 +14,7 @@ import HistoryModal from '../components/HistoryModal/HistoryModal';
 import GuestNameDialog from '../components/GuestNameDialog/GuestNameDialog';
 import PasswordDialog from '../components/PasswordDialog/PasswordDialog';
 import { socketService } from '../services/socketService';
+import { useSocket } from '../contexts/SocketContext';
 import { logger } from '../utils/logger';
 import { getGuestName } from '../utils/guestName';
 import {
@@ -31,6 +32,7 @@ import {
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const { isAuthenticated, user, logout } = useAuth();
+  const { isConnected: socketConnected } = useSocket(); // FIX C2: Track socket connection state
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
 
@@ -153,62 +155,82 @@ const HomePage: React.FC = () => {
   }, [smartMergeGames]);
 
   // Socket.IO and polling setup
+  // FIX C2: Add socketConnected dependency to re-register listeners when socket connects
+  // This ensures listeners are properly registered even if socket connects after component mount
   useEffect(() => {
+    isMountedRef.current = true;
     loadWaitingGames();
     const interval = setInterval(() => loadWaitingGames(true), 30000);
-    const socket = socketService.getSocket();
-    const currentTimeoutRef = updateTimeoutRef.current;
 
-    // CRITICAL FIX: Always register cleanup to prevent memory leak
+    // Store current timeout ref value for cleanup
+    const capturedTimeoutRef = updateTimeoutRef.current;
+
+    // Define cleanup function first
     const cleanup = () => {
       clearInterval(interval);
-      if (currentTimeoutRef) {
-        clearTimeout(currentTimeoutRef);
+      if (capturedTimeoutRef) {
+        clearTimeout(capturedTimeoutRef);
+      }
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
         updateTimeoutRef.current = null;
       }
+      // FIX H2: Clear mountedGamesRef on unmount
+      mountedGamesRef.current.clear();
     };
 
-    if (socket) {
-      const handleGameCreated = () => {
-        logger.log('[HomePage] Game created event received');
-        loadWaitingGames(true);
-      };
+    // Get socket - may be null if not connected yet
+    const socket = socketService.getSocket();
 
-      const handleGameStatusUpdated = () => {
-        logger.log('[HomePage] Game status updated event received');
-        loadWaitingGames(true);
-      };
+    // Define handlers outside conditional to reference in cleanup
+    const handleGameCreated = () => {
+      if (!isMountedRef.current) return;
+      logger.log('[HomePage] Game created event received');
+      loadWaitingGames(true);
+    };
 
-      const handleGameDeleted = (data: { roomId: string }) => {
-        // Safety check: validate data structure
-        if (!data || !data.roomId || typeof data.roomId !== 'string') {
-          logger.error('[HomePage] Invalid game-deleted data:', data);
-          return;
-        }
-        
-        logger.log('[HomePage] Game deleted event received:', data.roomId);
-        setWaitingGames(prev => {
-          if (!Array.isArray(prev)) return prev;
-          const filtered = prev.filter(game => game && game.roomId !== data.roomId);
-          mountedGamesRef.current.delete(data.roomId);
-          return filtered;
-        });
-      };
+    const handleGameStatusUpdated = () => {
+      if (!isMountedRef.current) return;
+      logger.log('[HomePage] Game status updated event received');
+      loadWaitingGames(true);
+    };
 
+    const handleGameDeleted = (data: { roomId: string }) => {
+      if (!isMountedRef.current) return;
+      // Safety check: validate data structure
+      if (!data || !data.roomId || typeof data.roomId !== 'string') {
+        logger.error('[HomePage] Invalid game-deleted data:', data);
+        return;
+      }
+
+      logger.log('[HomePage] Game deleted event received:', data.roomId);
+      setWaitingGames(prev => {
+        if (!Array.isArray(prev)) return prev;
+        const filtered = prev.filter(game => game && game.roomId !== data.roomId);
+        mountedGamesRef.current.delete(data.roomId);
+        return filtered;
+      });
+    };
+
+    // Only register listeners if socket exists and is connected
+    if (socket && socketConnected) {
       socket.on('game-created', handleGameCreated);
       socket.on('game-status-updated', handleGameStatusUpdated);
       socket.on('game-deleted', handleGameDeleted);
-
-      return () => {
-        cleanup();
-        socket.off('game-created', handleGameCreated);
-        socket.off('game-status-updated', handleGameStatusUpdated);
-        socket.off('game-deleted', handleGameDeleted);
-      };
     }
 
-    return cleanup;
-  }, [loadWaitingGames]);
+    return () => {
+      isMountedRef.current = false;
+      cleanup();
+      // Always try to remove listeners, even if socket state changed
+      const currentSocket = socketService.getSocket();
+      if (currentSocket) {
+        currentSocket.off('game-created', handleGameCreated);
+        currentSocket.off('game-status-updated', handleGameStatusUpdated);
+        currentSocket.off('game-deleted', handleGameDeleted);
+      }
+    };
+  }, [loadWaitingGames, socketConnected]);
 
   // Event handlers
   const handleCreateGame = async (): Promise<void> => {

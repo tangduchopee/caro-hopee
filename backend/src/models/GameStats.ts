@@ -119,6 +119,10 @@ GameStatsSchema.index({ gameId: 1, totalScore: -1 });
 GameStatsSchema.index({ gameId: 1, wins: -1 });
 GameStatsSchema.index({ userId: 1 });
 
+// FIX B4: Add compound index for time-based leaderboard queries (daily/weekly)
+// This prevents collection scans when filtering by lastPlayed
+GameStatsSchema.index({ gameId: 1, lastPlayed: -1, totalScore: -1 });
+
 // Update updatedAt before save
 GameStatsSchema.pre('save', function (next) {
   this.updatedAt = new Date();

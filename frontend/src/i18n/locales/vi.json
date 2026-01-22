@@ -26,6 +26,8 @@
     "login": "Đăng nhập",
     "register": "Đăng ký",
     "logout": "Đăng xuất",
+    "logoutConfirmTitle": "Đăng xuất?",
+    "logoutConfirmMessage": "Bạn có chắc chắn muốn đăng xuất?",
     "username": "Tên đăng nhập",
     "password": "Mật khẩu",
     "confirmPassword": "Xác nhận mật khẩu",

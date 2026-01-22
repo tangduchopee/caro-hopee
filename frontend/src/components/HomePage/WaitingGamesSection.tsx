@@ -70,6 +70,8 @@ const WaitingGamesSection: React.FC<WaitingGamesSectionProps> = ({
         sx={{
           minHeight: 200,
           contain: 'layout paint',
+          // Allow overflow for hover effects
+          overflow: 'visible',
         }}
       >
         {loadingGames ? (
@@ -89,8 +91,9 @@ const WaitingGamesSection: React.FC<WaitingGamesSectionProps> = ({
   );
 };
 
-// Loading skeleton component
-const LoadingSkeleton: React.FC = () => (
+// FIX C2: Memoize sub-components to prevent cascade re-renders
+// Loading skeleton component - memoized to prevent unnecessary re-renders
+const LoadingSkeleton: React.FC = React.memo(() => (
   <Box
     sx={{
       display: 'grid',
@@ -120,14 +123,15 @@ const LoadingSkeleton: React.FC = () => (
       </Paper>
     ))}
   </Box>
-);
+));
+LoadingSkeleton.displayName = 'LoadingSkeleton';
 
-// Empty state component
+// Empty state component - memoized
 interface EmptyStateProps {
   t: (key: string) => string;
 }
 
-const EmptyState: React.FC<EmptyStateProps> = ({ t }) => (
+const EmptyState: React.FC<EmptyStateProps> = React.memo(({ t }) => (
   <Box
     sx={{
       display: 'grid',
@@ -155,9 +159,10 @@ const EmptyState: React.FC<EmptyStateProps> = ({ t }) => (
       </Typography>
     </Paper>
   </Box>
-);
+));
+EmptyState.displayName = 'EmptyState';
 
-// Games grid component
+// Games grid component - memoized
 interface GamesGridProps {
   games: WaitingGame[];
   joiningGameId: string | null;
@@ -165,12 +170,15 @@ interface GamesGridProps {
   onJoin: (game: WaitingGame) => void;
 }
 
-const GamesGrid: React.FC<GamesGridProps> = ({ games, joiningGameId, mountedGamesRef, onJoin }) => (
+const GamesGrid: React.FC<GamesGridProps> = React.memo(({ games, joiningGameId, mountedGamesRef, onJoin }) => (
   <Box
     sx={{
       display: 'grid',
       gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)', lg: 'repeat(4, 1fr)' },
       gap: 2.5,
+      // Add padding to allow hover transform space
+      py: 0.5,
+      px: 0.5,
     }}
   >
     {games.map((game) => {
@@ -186,6 +194,7 @@ const GamesGrid: React.FC<GamesGridProps> = ({ games, joiningGameId, mountedGame
       );
     })}
   </Box>
-);
+));
+GamesGrid.displayName = 'GamesGrid';
 
 export default WaitingGamesSection;
