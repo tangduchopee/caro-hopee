@@ -43,6 +43,11 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' });
 });
 
+// Lightweight ping endpoint to prevent Render from sleeping
+app.get('/ping', (req, res) => {
+  res.status(200).json({ pong: Date.now() });
+});
+
 // Setup socket handlers
 setupSocketHandlers(io);
 
