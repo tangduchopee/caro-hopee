@@ -1,6 +1,13 @@
 import React, { useRef, useState, useEffect, useCallback } from "react";
 import { Box, Button, Card, CardContent, Typography, useTheme, useMediaQuery } from "@mui/material";
-import { Play, RotateCcw, Gift, Star, Heart, Zap, Crown, Diamond } from "lucide-react";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import CardGiftcardIcon from "@mui/icons-material/CardGiftcard";
+import StarIcon from "@mui/icons-material/Star";
+import FavoriteIcon from "@mui/icons-material/Favorite";
+import BoltIcon from "@mui/icons-material/Bolt";
+import WorkspacePremiumIcon from "@mui/icons-material/WorkspacePremium";
+import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import ConfettiParty from "./ConfettiParty";
 import { useLuckyWheel } from "./LuckyWheelContext";
 import { useLanguage } from "../../i18n";
@@ -33,7 +40,7 @@ export default function LuckyWheelDisplay() {
   const [showWinner, setShowWinner] = useState(false);
   const [showFireworks, setShowFireworks] = useState(false);
 
-  const icons = [Gift, Star, Heart, Zap, Crown, Diamond, Gift, Star];
+  const icons = [CardGiftcardIcon, StarIcon, FavoriteIcon, BoltIcon, WorkspacePremiumIcon, EmojiEventsIcon, CardGiftcardIcon, StarIcon];
 
   const segmentAngle = items.length ? 360 / items.length : 360;
 
@@ -423,8 +430,7 @@ export default function LuckyWheelDisplay() {
                           }}
                         >
                           <IconComponent 
-                            size={isMobile ? 12 : 16} 
-                            style={{ transform: 'rotate(-45deg)' }} 
+                            sx={{ fontSize: isMobile ? 12 : 16, transform: 'rotate(-45deg)' }} 
                           />
                         </Box>
                         {/* Text - Ẩn hoặc thu nhỏ trên mobile nhỏ để tránh tràn */}
@@ -517,7 +523,7 @@ export default function LuckyWheelDisplay() {
               onClick={spinWheel}
               disabled={isSpinning || items.length === 0}
               variant="contained"
-              startIcon={<Play size={isMobile ? 20 : 24} />}
+              startIcon={<PlayArrowIcon sx={{ fontSize: isMobile ? 20 : 24 }} />}
               sx={{
                 px: { xs: 3, sm: 4 },
                 py: { xs: 1.5, sm: 2 },
@@ -541,7 +547,7 @@ export default function LuckyWheelDisplay() {
             <Button
               onClick={resetWheel}
               variant="outlined"
-              startIcon={<RotateCcw size={isMobile ? 18 : 20} />}
+              startIcon={<RefreshIcon sx={{ fontSize: isMobile ? 18 : 20 }} />}
               sx={{
                 px: { xs: 2.5, sm: 3 },
                 py: { xs: 1.5, sm: 2 },
