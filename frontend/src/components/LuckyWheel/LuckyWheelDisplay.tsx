@@ -568,76 +568,79 @@ export default function LuckyWheelDisplay() {
           </Box>
 
         </Box>
+      </Box>
 
-        {/* Winner Modal - Outside wheel container to center properly */}
-        {showWinner && (
-          <Box
-            onClick={closeWinnerModal}
+      {/* Winner Modal - Full screen overlay */}
+      {showWinner && (
+        <Box
+          onClick={closeWinnerModal}
+          sx={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            bgcolor: 'rgba(0, 0, 0, 0.5)',
+            backdropFilter: 'blur(4px)',
+            cursor: 'pointer',
+          }}
+        >
+          <Card
+            onClick={(e) => e.stopPropagation()}
             sx={{
-              position: 'absolute',
-              inset: 0,
-              zIndex: 50,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              bgcolor: 'rgba(0, 0, 0, 0.5)',
-              backdropFilter: 'blur(4px)',
-              cursor: 'pointer',
+              position: 'relative',
+              zIndex: 10,
+              width: '100%',
+              maxWidth: '500px',
+              mx: 2,
+              background: 'linear-gradient(135deg, #fff9c4 0%, #ffe082 100%)',
+              border: '4px solid #ff9800',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+              cursor: 'default',
             }}
           >
-            <Card
-              onClick={(e) => e.stopPropagation()}
-              sx={{
-                position: 'relative',
-                zIndex: 10,
-                width: '100%',
-                maxWidth: '500px',
-                mx: 2,
-                background: 'linear-gradient(135deg, #fff9c4 0%, #ffe082 100%)',
-                border: '4px solid #ff9800',
-                boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-                cursor: 'default',
-              }}
-            >
-              <CardContent sx={{ p: { xs: 3, md: 4 }, textAlign: 'center' }}>
-                <Typography
-                  variant="h4"
-                  sx={{
-                    fontSize: { xs: '1.5rem', md: '2rem' },
-                    fontWeight: 700,
-                    color: '#d32f2f',
-                    mb: 2,
-                  }}
-                >
-                    {isTheBestRewards ? t('luckyWheel.congratulations') : t('luckyWheel.result')}
-                </Typography>
+            <CardContent sx={{ p: { xs: 3, md: 4 }, textAlign: 'center' }}>
+              <Typography
+                variant="h4"
+                sx={{
+                  fontSize: { xs: '1.5rem', md: '2rem' },
+                  fontWeight: 700,
+                  color: '#d32f2f',
+                  mb: 2,
+                }}
+              >
+                  {isTheBestRewards ? t('luckyWheel.congratulations') : t('luckyWheel.result')}
+              </Typography>
 
-                <Typography
-                  variant="h5"
-                  sx={{
-                    fontSize: { xs: '1.5rem', md: '2rem' },
-                    color: '#f57c00',
-                    fontWeight: 700,
-                    mb: 1,
-                  }}
-                >
-                  {winner}
-                </Typography>
+              <Typography
+                variant="h5"
+                sx={{
+                  fontSize: { xs: '1.5rem', md: '2rem' },
+                  color: '#f57c00',
+                  fontWeight: 700,
+                  mb: 1,
+                }}
+              >
+                {winner}
+              </Typography>
 
-                <Typography
-                  sx={{
-                    color: '#d32f2f',
-                    fontSize: { xs: '1rem', md: '1.125rem' },
-                    fontWeight: 600,
-                  }}
-                >
-                    {t('luckyWheel.winnerMessage').replace('{winner}', winner)}
-                </Typography>
-              </CardContent>
-            </Card>
-          </Box>
-        )}
-      </Box>
+              <Typography
+                sx={{
+                  color: '#d32f2f',
+                  fontSize: { xs: '1rem', md: '1.125rem' },
+                  fontWeight: 600,
+                }}
+              >
+                  {t('luckyWheel.winnerMessage').replace('{winner}', winner)}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Box>
+      )}
 
       {/* Confetti */}
       <ConfettiParty show={showFireworks} />
