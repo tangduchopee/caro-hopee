@@ -26,6 +26,7 @@ import { adminApi } from '../../services/api';
 import { useLanguage } from '../../i18n';
 import AdminRoute from '../../components/AdminRoute';
 import { MainLayout } from '../../components/MainLayout';
+import { socketService } from '../../services/socketService';
 
 interface LuckyWheelUser {
   id: string;
@@ -71,16 +72,41 @@ const LuckyWheelAdminPage: React.FC = () => {
     loadUsers();
   }, [loadUsers]);
 
-  // Auto-refresh list every 5 seconds to show real-time updates
+  // Auto-refresh list every 10 seconds to show real-time updates
   useEffect(() => {
     const interval = setInterval(() => {
       loadUsers();
-    }, 5000); // Refresh every 5 seconds
+    }, 10000); // Refresh every 10 seconds (reduced from 5s, socket handles realtime)
 
     return () => {
       clearInterval(interval);
     };
-  }, [loadUsers]); // Re-create interval if loadUsers changes
+  }, [loadUsers]);
+
+  // Socket listener for realtime guest join/leave updates
+  useEffect(() => {
+    const socket = socketService.getSocket();
+    if (!socket) return;
+
+    // When guest leaves, remove from list immediately
+    const handleGuestLeft = (data: { guestId: string }) => {
+      setUsers(prev => prev.filter(user => user.guestId !== data.guestId));
+      setTotal(prev => Math.max(0, prev - 1));
+    };
+
+    // When new guest joins (config created), reload list
+    const handleConfigUpdated = () => {
+      loadUsers();
+    };
+
+    socket.on('lucky-wheel-guest-left', handleGuestLeft);
+    socket.on('lucky-wheel-config-updated', handleConfigUpdated);
+
+    return () => {
+      socket.off('lucky-wheel-guest-left', handleGuestLeft);
+      socket.off('lucky-wheel-config-updated', handleConfigUpdated);
+    };
+  }, [loadUsers]);
 
   const handleSearch = (value: string) => {
     setSearch(value);

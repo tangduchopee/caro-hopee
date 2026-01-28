@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, useMemo 
 import { luckyWheelApi } from "../../services/api";
 import { useAuth } from "../../contexts/AuthContext";
 import { socketService } from "../../services/socketService";
+import { API_BASE_URL } from "../../utils/constants";
 
 type WheelItem = { label: string; weight: number };
 
@@ -324,10 +325,11 @@ export const LuckyWheelProvider = ({ children }: { children: React.ReactNode }) 
       // Delete guest config when tab closes
       const { getGuestId } = require('../../utils/guestId');
       const guestId = getGuestId();
-      
+
       if (guestId) {
         // Use fetch with keepalive for reliable delivery even when tab is closing
-        fetch(`${window.location.origin}/api/lucky-wheel/config`, {
+        // Use API_BASE_URL instead of window.location.origin for correct API endpoint
+        fetch(`${API_BASE_URL}/lucky-wheel/config`, {
           method: 'DELETE',
           headers: {
             'Content-Type': 'application/json',

@@ -175,6 +175,14 @@ export const deleteGuestConfig = async (req: Request, res: Response): Promise<vo
       return;
     }
 
+    // Emit socket event to notify admin that guest has left
+    try {
+      const { getIO } = require('../config/socket.io');
+      getIO().emit('lucky-wheel-guest-left', { guestId });
+    } catch {
+      // Socket not initialized yet, ignore
+    }
+
     res.json({ message: 'Config deleted successfully' });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Failed to delete config' });

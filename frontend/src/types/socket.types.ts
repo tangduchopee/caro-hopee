@@ -54,5 +54,6 @@ export interface ServerToClientEvents {
   'achievement-unlocked': (data: { playerId: string; achievementIds: string[]; achievements: Array<{ id: string; name: { en: string; vi: string }; desc: { en: string; vi: string }; icon: string; rarity: 'common' | 'rare' | 'epic' | 'legendary'; category: 'wins' | 'streaks' | 'games' | 'special' | 'score'; requirement: { type: string; value: number } }> }) => void;
   'reaction-received': (data: { fromPlayerNumber: 1 | 2; emoji: string; fromName: string }) => void;
   'lucky-wheel-config-updated': (data: { targetId: string; targetType: 'guest' | 'user'; items: Array<{ label: string; weight: number }>; updatedAt: string }) => void;
+  'lucky-wheel-guest-left': (data: { guestId: string }) => void;
 }
 
