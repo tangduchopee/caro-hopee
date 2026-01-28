@@ -189,9 +189,13 @@ export const deleteGuestConfig = async (req: Request, res: Response): Promise<vo
   }
 };
 
+// Maximum number of guest configs allowed
+const MAX_GUEST_CONFIGS = 10;
+
 /**
  * Update last activity time for guest config
  * Creates new config with default items if not exists (upsert)
+ * Auto-cleanup: keeps only MAX_GUEST_CONFIGS most recent guest configs
  */
 export const updateActivity = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -229,12 +233,72 @@ export const updateActivity = async (req: Request, res: Response): Promise<void>
       { upsert: true, new: true }
     );
 
+    // Auto-cleanup: If this is a guest config, ensure max 10 guest configs exist
+    // Delete oldest ones if exceeded (non-blocking, run in background)
+    if (guestId) {
+      setImmediate(async () => {
+        try {
+          await enforceMaxGuestConfigs();
+        } catch (err) {
+          console.error('[updateActivity] Background cleanup error:', err);
+        }
+      });
+    }
+
     res.json({
       message: config ? 'Activity updated successfully' : 'Config created',
       isNew: !config?.createdAt || (Date.now() - config.createdAt.getTime() < 1000),
     });
   } catch (error: any) {
     res.status(500).json({ message: error.message || 'Failed to update activity' });
+  }
+};
+
+/**
+ * Enforce maximum guest configs limit
+ * Deletes oldest guest configs when count exceeds MAX_GUEST_CONFIGS
+ */
+const enforceMaxGuestConfigs = async (): Promise<number> => {
+  try {
+    // Count guest configs
+    const guestCount = await LuckyWheelConfig.countDocuments({ guestId: { $ne: null } });
+
+    if (guestCount <= MAX_GUEST_CONFIGS) {
+      return 0;
+    }
+
+    // Find oldest guest configs to delete
+    const excessCount = guestCount - MAX_GUEST_CONFIGS;
+    const oldestConfigs = await LuckyWheelConfig.find({ guestId: { $ne: null } })
+      .sort({ lastActivityAt: 1, createdAt: 1 }) // Oldest first
+      .limit(excessCount)
+      .select('_id guestId');
+
+    if (oldestConfigs.length === 0) {
+      return 0;
+    }
+
+    // Delete oldest configs
+    const idsToDelete = oldestConfigs.map(c => c._id);
+    const result = await LuckyWheelConfig.deleteMany({ _id: { $in: idsToDelete } });
+
+    // Emit socket events for deleted guests
+    try {
+      const { getIO } = require('../config/socket.io');
+      oldestConfigs.forEach(config => {
+        if (config.guestId) {
+          getIO().emit('lucky-wheel-guest-left', { guestId: config.guestId });
+        }
+      });
+    } catch {
+      // Socket not initialized yet, ignore
+    }
+
+    console.log(`[enforceMaxGuestConfigs] Deleted ${result.deletedCount} old guest configs`);
+    return result.deletedCount;
+  } catch (error: any) {
+    console.error('[enforceMaxGuestConfigs] Error:', error);
+    return 0;
   }
 };
 
