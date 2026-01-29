@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import LuckyWheelConfig, { IWheelItem } from '../models/LuckyWheelConfig';
 import { AuthRequest } from '../middleware/authMiddleware';
 
@@ -303,10 +304,14 @@ const enforceMaxGuestConfigs = async (): Promise<number> => {
 };
 
 /**
- * Cleanup inactive guest configs (24 hours without activity)
+ * Cleanup inactive guest configs (24 hours without activity).
+ * Skips if DB is disconnected; swallows connection/timeout errors to avoid noise.
  */
 export const cleanupInactiveGuests = async (): Promise<number> => {
   try {
+    if (mongoose.connection.readyState !== 1) {
+      return 0;
+    }
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const result = await LuckyWheelConfig.deleteMany({
       guestId: { $ne: null },
@@ -314,6 +319,15 @@ export const cleanupInactiveGuests = async (): Promise<number> => {
     });
     return result.deletedCount;
   } catch (error: any) {
+    const name = error?.name || '';
+    const isConnectionError =
+      name === 'MongoNetworkTimeoutError' ||
+      name === 'MongoPoolClearedError' ||
+      name === 'MongoServerSelectionError' ||
+      (error?.message && typeof error.message === 'string' && error.message.includes('timed out'));
+    if (isConnectionError) {
+      return 0;
+    }
     console.error('Error cleaning up inactive guest configs:', error);
     return 0;
   }

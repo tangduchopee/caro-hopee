@@ -65,15 +65,21 @@ const PORT = process.env.PORT || 5001;
 // Scheduled cleanup job: Delete inactive guest configs every hour
 const startCleanupJob = () => {
   // Run cleanup immediately on startup
-  cleanupInactiveGuests().then((count) => {
-    console.log(`[Cleanup] Deleted ${count} inactive guest configs on startup`);
-  });
+  cleanupInactiveGuests()
+    .then((count) => {
+      console.log(`[Cleanup] Deleted ${count} inactive guest configs on startup`);
+    })
+    .catch(() => {});
 
-  // Then run every hour
+  // Then run every hour; ignore connection errors (cleanup is best-effort)
   setInterval(async () => {
-    const count = await cleanupInactiveGuests();
-    if (count > 0) {
-      console.log(`[Cleanup] Deleted ${count} inactive guest configs`);
+    try {
+      const count = await cleanupInactiveGuests();
+      if (count > 0) {
+        console.log(`[Cleanup] Deleted ${count} inactive guest configs`);
+      }
+    } catch {
+      // Already handled inside cleanupInactiveGuests; avoid unhandled rejection
     }
   }, 60 * 60 * 1000); // 1 hour
 };

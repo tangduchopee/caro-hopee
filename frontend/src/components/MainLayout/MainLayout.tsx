@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import HomePageContent from './HomePageContent';
 import LuckyWheelContent from './LuckyWheelContent';
 import { LuckyWheelProvider } from '../LuckyWheel';
+import { XiDachScoreProvider, XiDachScoreContent } from '../XiDachScore';
 import { MainLayoutProvider, useMainLayout } from './MainLayoutContext';
 
 interface MainLayoutProps {
@@ -26,6 +27,7 @@ const MainLayoutInner: React.FC<MainLayoutProps> = ({ children }) => {
   const [selectedGame, setSelectedGame] = useState<string>(() => {
     // Sync với route hiện tại
     if (location.pathname === '/lucky-wheel') return 'lucky-wheel';
+    if (location.pathname === '/xi-dach-score') return 'xi-dach-score';
     if (location.pathname === '/') return 'caro';
     return 'caro';
   });
@@ -38,6 +40,8 @@ const MainLayoutInner: React.FC<MainLayoutProps> = ({ children }) => {
   useEffect(() => {
     if (location.pathname === '/lucky-wheel') {
       setSelectedGame('lucky-wheel');
+    } else if (location.pathname === '/xi-dach-score') {
+      setSelectedGame('xi-dach-score');
     } else if (location.pathname === '/') {
       setSelectedGame('caro');
     }
@@ -75,6 +79,8 @@ const MainLayoutInner: React.FC<MainLayoutProps> = ({ children }) => {
       // Chỉ update URL để sync với browser history, không reload page
       if (gameId === 'lucky-wheel') {
         navigate('/lucky-wheel', { replace: true });
+      } else if (gameId === 'xi-dach-score') {
+        navigate('/xi-dach-score', { replace: true });
       } else if (gameId === 'caro') {
         navigate('/', { replace: true });
       }
@@ -111,6 +117,12 @@ const MainLayoutInner: React.FC<MainLayoutProps> = ({ children }) => {
           <LuckyWheelProvider>
             <LuckyWheelContent />
           </LuckyWheelProvider>
+        );
+      case 'xi-dach-score':
+        return (
+          <XiDachScoreProvider>
+            <XiDachScoreContent />
+          </XiDachScoreProvider>
         );
       case 'caro':
       default:

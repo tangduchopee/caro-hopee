@@ -47,6 +47,14 @@ export const GAMES: GameItem[] = [
     color: '#f39c12',
   },
   {
+    id: 'xi-dach-score',
+    name: 'games.xiDachScore',
+    icon: '🎴',
+    description: 'home.xiDachScoreDescription',
+    available: true,
+    color: '#e74c3c',
+  },
+  {
     id: 'werewolf',
     name: 'games.werewolf',
     icon: '🐺',

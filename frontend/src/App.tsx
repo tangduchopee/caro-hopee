@@ -131,6 +131,10 @@ const router = createBrowserRouter([
     element: <MainLayout />,
   },
   {
+    path: '/xi-dach-score',
+    element: <MainLayout />,
+  },
+  {
     path: '/login',
     element: <LoginPage />,
   },

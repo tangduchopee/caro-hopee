@@ -1,0 +1,713 @@
+/**
+ * Blackjack Score Tracker - End Match Modal
+ * Modal to input results for all players after a match
+ * Features:
+ * - Dealer score is auto-calculated as inverse of other players' total
+ * - Dealer xì bàn/xì lác mode: win from all or selected players
+ */
+
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Box,
+  Typography,
+  Alert,
+  Snackbar,
+  useMediaQuery,
+  useTheme,
+  ToggleButton,
+  ToggleButtonGroup,
+  Chip,
+  Collapse,
+} from '@mui/material';
+import { useXiDachScore } from './XiDachScoreContext';
+import PlayerResultInput, { PlayerResultInputData } from './PlayerResultInput';
+import { createPlayerResult, calculateScoreChange } from '../../utils/xi-dach-score-storage';
+import { useLanguage } from '../../i18n';
+import { XiDachPlayerResult } from '../../types/xi-dach-score.types';
+
+// Dealer special mode types
+type DealerMode = 'normal' | 'xiBan' | 'nguLinh';
+type DealerWinScope = 'all' | 'selected';
+
+interface EndMatchModalProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+const EndMatchModal: React.FC<EndMatchModalProps> = ({ open, onClose }) => {
+  const { t } = useLanguage();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { currentSession, addMatch } = useXiDachScore();
+
+  const [playerResults, setPlayerResults] = useState<
+    Record<string, PlayerResultInputData>
+  >({});
+  const [error, setError] = useState<string | null>(null);
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  // Dealer special mode states
+  const [dealerMode, setDealerMode] = useState<DealerMode>('normal');
+  const [dealerTuCount, setDealerTuCount] = useState(1);
+  const [dealerWinScope, setDealerWinScope] = useState<DealerWinScope>('all');
+  const [dealerWinTargets, setDealerWinTargets] = useState<string[]>([]); // Player IDs dealer wins from
+
+  // Get active players and dealer
+  const activePlayers = useMemo(
+    () => currentSession?.players.filter((p) => p.isActive) || [],
+    [currentSession?.players]
+  );
+
+  const currentDealer = useMemo(
+    () => activePlayers.find((p) => p.id === currentSession?.currentDealerId),
+    [activePlayers, currentSession?.currentDealerId]
+  );
+
+  // Non-dealer players (those who need to input results)
+  const nonDealerPlayers = useMemo(
+    () => activePlayers.filter((p) => p.id !== currentSession?.currentDealerId),
+    [activePlayers, currentSession?.currentDealerId]
+  );
+
+  // Check if dealer is in special mode (xì bàn or ngũ linh)
+  const isDealerSpecialMode = dealerMode !== 'normal';
+
+  // Players who are disabled (auto-lose to dealer in special mode)
+  const disabledPlayerIds = useMemo(() => {
+    if (!isDealerSpecialMode) return [];
+    if (dealerWinScope === 'all') return nonDealerPlayers.map(p => p.id);
+    return dealerWinTargets;
+  }, [isDealerSpecialMode, dealerWinScope, dealerWinTargets, nonDealerPlayers]);
+
+  // Players who can still input (not disabled)
+  const enabledPlayers = useMemo(
+    () => nonDealerPlayers.filter(p => !disabledPlayerIds.includes(p.id)),
+    [nonDealerPlayers, disabledPlayerIds]
+  );
+
+  // Calculate dealer's score as inverse of all other players' scores
+  const dealerPreviewScore = useMemo(() => {
+    if (!currentSession || !currentDealer) return 0;
+
+    // In special mode (xì bàn/ngũ linh), calculate dealer's winning from disabled players
+    if (isDealerSpecialMode) {
+      const multiplier = dealerMode === 'xiBan' ? 2 : dealerMode === 'nguLinh' ? 2 : 1;
+      const dealerWinPerTu = currentSession.settings.pointsPerTu * multiplier;
+
+      // Score from disabled players (they all lose to dealer)
+      let dealerScore = disabledPlayerIds.length * dealerTuCount * dealerWinPerTu;
+
+      // Score from enabled players (inverse of their results)
+      for (const player of enabledPlayers) {
+        const data = playerResults[player.id];
+        if (data && data.outcome) {
+          const score = calculateScoreChange(
+            {
+              playerId: data.playerId,
+              tuCount: data.tuCount,
+              outcome: data.outcome,
+              xiBanCount: data.xiBanCount,
+              nguLinhCount: data.nguLinhCount,
+              penalty28: data.penalty28,
+              penalty28Recipients: data.penalty28Recipients,
+            },
+            currentSession.settings
+          );
+          dealerScore -= score; // Inverse
+        }
+      }
+
+      return dealerScore;
+    }
+
+    // Normal mode: dealer score = inverse of all players' total
+    let totalOtherPlayersScore = 0;
+
+    // Sum up all non-dealer players' scores
+    for (const player of nonDealerPlayers) {
+      const data = playerResults[player.id];
+      if (data && data.outcome) {
+        const score = calculateScoreChange(
+          {
+            playerId: data.playerId,
+            tuCount: data.tuCount,
+            outcome: data.outcome,
+            xiBanCount: data.xiBanCount,
+            nguLinhCount: data.nguLinhCount,
+            penalty28: data.penalty28,
+            penalty28Recipients: data.penalty28Recipients,
+          },
+          currentSession.settings
+        );
+        totalOtherPlayersScore += score;
+      }
+    }
+
+    // Dealer's score is the inverse
+    return -totalOtherPlayersScore;
+  }, [playerResults, nonDealerPlayers, enabledPlayers, currentSession, currentDealer, isDealerSpecialMode, dealerMode, dealerTuCount, disabledPlayerIds]);
+
+  // Initialize player results when modal opens
+  useEffect(() => {
+    if (open && currentSession) {
+      const initialResults: Record<string, PlayerResultInputData> = {};
+      // Only initialize for non-dealer players
+      nonDealerPlayers.forEach((player) => {
+        initialResults[player.id] = {
+          playerId: player.id,
+          outcome: null,
+          tuCount: 1,
+          xiBanCount: 0,
+          nguLinhCount: 0,
+          penalty28: false,
+          penalty28Recipients: [],
+        };
+      });
+      setPlayerResults(initialResults);
+      setError(null);
+      // Reset dealer mode
+      setDealerMode('normal');
+      setDealerTuCount(1);
+      setDealerWinScope('all');
+      setDealerWinTargets([]);
+    }
+  }, [open, currentSession, nonDealerPlayers]);
+
+  const handlePlayerResultChange = (data: PlayerResultInputData) => {
+    setPlayerResults((prev) => ({
+      ...prev,
+      [data.playerId]: data,
+    }));
+    setError(null);
+  };
+
+  const validateResults = (): string | null => {
+    // Validate dealer special mode
+    if (isDealerSpecialMode) {
+      if (dealerTuCount < 1) {
+        return t('xiDachScore.dealer.tuMin');
+      }
+      if (dealerWinScope === 'selected' && dealerWinTargets.length === 0) {
+        return t('xiDachScore.dealer.selectTargets');
+      }
+    }
+
+    // Only validate enabled players (not disabled by dealer special mode)
+    for (const player of enabledPlayers) {
+      const result = playerResults[player.id];
+      if (!result) {
+        return t('xiDachScore.match.missingResult', { name: player.name });
+      }
+      if (!result.outcome) {
+        return t('xiDachScore.match.noOutcome', { name: player.name });
+      }
+      // tuCount can be 0 for lose, but must be >= 1 for win
+      if (result.outcome === 'win' && result.tuCount < 1) {
+        return t('xiDachScore.match.tuMin', { name: player.name });
+      }
+      if (result.penalty28 && result.penalty28Recipients.length === 0) {
+        return t('xiDachScore.match.penalty28NoRecipient', { name: player.name });
+      }
+    }
+    return null;
+  };
+
+  const handleSubmit = () => {
+    const validationError = validateResults();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    if (!currentSession || !currentDealer) return;
+
+    const allResults: XiDachPlayerResult[] = [];
+
+    // Create dealer result
+    const dealerXiBan = dealerMode === 'xiBan' ? dealerTuCount : 0;
+    const dealerNguLinh = dealerMode === 'nguLinh' ? dealerTuCount : 0;
+    const dealerResult: XiDachPlayerResult = {
+      playerId: currentDealer.id,
+      tuCount: isDealerSpecialMode ? dealerTuCount : 0,
+      outcome: dealerPreviewScore >= 0 ? 'win' : 'lose',
+      xiBanCount: dealerXiBan,
+      nguLinhCount: dealerNguLinh,
+      penalty28: false,
+      penalty28Recipients: [],
+      scoreChange: dealerPreviewScore,
+    };
+    allResults.push(dealerResult);
+
+    // Create results for disabled players (auto-lose to dealer in special mode)
+    if (isDealerSpecialMode) {
+      const multiplier = dealerMode === 'xiBan' ? 2 : dealerMode === 'nguLinh' ? 2 : 1;
+      const lossPerPlayer = dealerTuCount * currentSession.settings.pointsPerTu * multiplier;
+
+      for (const playerId of disabledPlayerIds) {
+        const disabledResult: XiDachPlayerResult = {
+          playerId,
+          tuCount: dealerTuCount,
+          outcome: 'lose',
+          xiBanCount: dealerXiBan,
+          nguLinhCount: dealerNguLinh,
+          penalty28: false,
+          penalty28Recipients: [],
+          scoreChange: -lossPerPlayer,
+        };
+        allResults.push(disabledResult);
+      }
+    }
+
+    // Create results for enabled players (normal input)
+    for (const player of enabledPlayers) {
+      const data = playerResults[player.id];
+      const result = createPlayerResult(
+        player.id,
+        {
+          tuCount: data.tuCount,
+          outcome: data.outcome as 'win' | 'lose',
+          xiBanCount: data.xiBanCount,
+          nguLinhCount: data.nguLinhCount,
+          penalty28: data.penalty28,
+          penalty28Recipients: data.penalty28Recipients,
+        },
+        currentSession.settings
+      );
+      allResults.push(result);
+    }
+
+    // In normal mode, add results for all non-dealer players
+    if (!isDealerSpecialMode) {
+      // Clear and re-add since we already added enabled players above
+      allResults.length = 1; // Keep dealer result
+      for (const player of nonDealerPlayers) {
+        const data = playerResults[player.id];
+        const result = createPlayerResult(
+          player.id,
+          {
+            tuCount: data.tuCount,
+            outcome: data.outcome as 'win' | 'lose',
+            xiBanCount: data.xiBanCount,
+            nguLinhCount: data.nguLinhCount,
+            penalty28: data.penalty28,
+            penalty28Recipients: data.penalty28Recipients,
+          },
+          currentSession.settings
+        );
+        allResults.push(result);
+      }
+    }
+
+    // Add match
+    addMatch(allResults);
+    setShowSuccess(true);
+
+    // Close modal after short delay
+    setTimeout(() => {
+      setShowSuccess(false);
+      onClose();
+    }, 500);
+  };
+
+  if (!currentSession) return null;
+
+  const matchNumber = currentSession.matches.length + 1;
+
+  return (
+    <>
+      <Dialog
+        open={open}
+        onClose={onClose}
+        fullScreen={isMobile}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: isMobile ? 0 : 3,
+            maxHeight: isMobile ? '100%' : '90vh',
+          },
+        }}
+      >
+        <DialogTitle
+          sx={{
+            fontWeight: 600,
+            borderBottom: '1px solid #eee',
+            pb: 2,
+          }}
+        >
+          <Typography variant="h6" sx={{ fontWeight: 700, color: '#2c3e50' }}>
+            {t('xiDachScore.match.endTitle', { number: matchNumber })}
+          </Typography>
+          {currentDealer && (
+            <Typography variant="body2" sx={{ color: '#7f8c8d', mt: 0.5 }}>
+              {t('xiDachScore.dealer.label')}: 👑 {currentDealer.name}
+            </Typography>
+          )}
+        </DialogTitle>
+
+        <DialogContent
+          sx={{
+            p: 2,
+            bgcolor: '#f8f9fa',
+          }}
+        >
+          {/* Error Alert */}
+          {error && (
+            <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>
+              {error}
+            </Alert>
+          )}
+
+          {/* Settings Info */}
+          <Box
+            sx={{
+              mb: 2,
+              p: 1.5,
+              bgcolor: '#fff',
+              borderRadius: 2,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+            }}
+          >
+            <Typography variant="caption" sx={{ color: '#95a5a6' }}>
+              {currentSession.settings.pointsPerTu}{t('xiDachScore.game.perTu')}
+            </Typography>
+            <Typography variant="caption" sx={{ color: '#95a5a6' }}>
+              {currentSession.settings.penalty28Enabled
+                ? `${t('xiDachScore.penalty28Short')}: ${currentSession.settings.penalty28Amount}đ`
+                : t('xiDachScore.penalty28ByBet')}
+            </Typography>
+          </Box>
+
+          {/* Dealer Card - Mode selection and score preview */}
+          {currentDealer && (
+            <Box
+              sx={{
+                mb: 2,
+                p: 2,
+                bgcolor: '#fff',
+                borderRadius: 2,
+                border: `2px solid ${isDealerSpecialMode ? '#FFB74D' : '#FF8A65'}`,
+              }}
+            >
+              {/* Dealer header with score preview */}
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2, pl: 0.5 }}>
+                <span style={{ marginRight: 8 }}>👑</span>
+                <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#2c3e50' }}>
+                  {currentDealer.name}
+                </Typography>
+                <Box
+                  sx={{
+                    ml: 'auto',
+                    px: 1.5,
+                    py: 0.5,
+                    borderRadius: 2,
+                    bgcolor: dealerPreviewScore >= 0 ? 'rgba(39, 174, 96, 0.1)' : 'rgba(255, 138, 101, 0.1)',
+                  }}
+                >
+                  <Typography
+                    variant="h6"
+                    sx={{
+                      fontWeight: 700,
+                      color: dealerPreviewScore >= 0 ? '#2e7d32' : '#E64A19',
+                    }}
+                  >
+                    {dealerPreviewScore >= 0 ? '+' : ''}{dealerPreviewScore}đ
+                  </Typography>
+                </Box>
+              </Box>
+
+              {/* Dealer Mode Toggle */}
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="caption" sx={{ color: '#7f8c8d', mb: 1, display: 'block' }}>
+                  {t('xiDachScore.dealer.modeLabel')}
+                </Typography>
+                <ToggleButtonGroup
+                  value={dealerMode}
+                  exclusive
+                  onChange={(_, newMode) => newMode && setDealerMode(newMode)}
+                  size="small"
+                  fullWidth
+                >
+                  <ToggleButton value="normal" sx={{ flex: 1, fontSize: '0.75rem' }}>
+                    {t('xiDachScore.dealer.modeNormal')}
+                  </ToggleButton>
+                  <ToggleButton
+                    value="xiBan"
+                    sx={{
+                      flex: 1,
+                      fontSize: '0.75rem',
+                      '&.Mui-selected': { bgcolor: '#FFB74D', color: '#fff', '&:hover': { bgcolor: '#F57C00' } },
+                    }}
+                  >
+                    {t('xiDachScore.dealer.modeXiBan')}
+                  </ToggleButton>
+                  <ToggleButton
+                    value="nguLinh"
+                    sx={{
+                      flex: 1,
+                      fontSize: '0.75rem',
+                      '&.Mui-selected': { bgcolor: '#FFCC80', color: '#fff', '&:hover': { bgcolor: '#FF9800' } },
+                    }}
+                  >
+                    {t('xiDachScore.dealer.modeNguLinh')}
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+
+              {/* Special mode options */}
+              <Collapse in={isDealerSpecialMode}>
+                {/* Tu count input */}
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="caption" sx={{ color: '#7f8c8d', mb: 1, display: 'block' }}>
+                    {t('xiDachScore.dealer.tuCountLabel')}
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => setDealerTuCount(Math.max(1, dealerTuCount - 1))}
+                      sx={{ minWidth: 36, borderColor: '#FF8A65', color: '#FF8A65', bgcolor: '#fff', '&:hover': { borderColor: '#E64A19', bgcolor: 'rgba(0, 0, 0, 0.04)' } }}
+                    >
+                      -
+                    </Button>
+                    <Typography sx={{ minWidth: 30, textAlign: 'center', fontWeight: 600 }}>
+                      {dealerTuCount}
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => setDealerTuCount(dealerTuCount + 1)}
+                      sx={{ minWidth: 36, borderColor: '#FF8A65', color: '#FF8A65', bgcolor: '#fff', '&:hover': { borderColor: '#E64A19', bgcolor: 'rgba(0, 0, 0, 0.04)' } }}
+                    >
+                      +
+                    </Button>
+                    <Typography variant="caption" sx={{ color: '#95a5a6', ml: 1 }}>
+                      × {currentSession.settings.pointsPerTu * 2}đ = {dealerTuCount * currentSession.settings.pointsPerTu * 2}đ/{t('xiDachScore.dealer.perPlayer')}
+                    </Typography>
+                  </Box>
+                </Box>
+
+                {/* Win scope selection */}
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="caption" sx={{ color: '#7f8c8d', mb: 1, display: 'block' }}>
+                    {t('xiDachScore.dealer.winScopeLabel')}
+                  </Typography>
+                  <ToggleButtonGroup
+                    value={dealerWinScope}
+                    exclusive
+                    onChange={(_, newScope) => newScope && setDealerWinScope(newScope)}
+                    size="small"
+                    fullWidth
+                  >
+                    <ToggleButton
+                      value="all"
+                      sx={{
+                        flex: 1,
+                        fontSize: '0.75rem',
+                        '&.Mui-selected': { bgcolor: '#2e7d32', color: '#fff', '&:hover': { bgcolor: '#1b5e20' } },
+                      }}
+                    >
+                      {t('xiDachScore.dealer.winAll')}
+                    </ToggleButton>
+                    <ToggleButton
+                      value="selected"
+                      sx={{
+                        flex: 1,
+                        fontSize: '0.75rem',
+                        '&.Mui-selected': { bgcolor: '#2e7d32', color: '#fff', '&:hover': { bgcolor: '#1b5e20' } },
+                      }}
+                    >
+                      {t('xiDachScore.dealer.winSelected')}
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+                </Box>
+
+                {/* Player selection for "selected" scope */}
+                <Collapse in={dealerWinScope === 'selected'}>
+                  <Box
+                    sx={{
+                      p: 1.5,
+                      bgcolor: '#f8f9fa',
+                      borderRadius: 2,
+                    }}
+                  >
+                    <Typography variant="caption" sx={{ color: '#7f8c8d', mb: 1, display: 'block' }}>
+                      {t('xiDachScore.dealer.selectTargetsLabel')}
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {nonDealerPlayers.map((player) => (
+                        <Chip
+                          key={player.id}
+                          label={player.name}
+                          size="small"
+                          onClick={() => {
+                            if (dealerWinTargets.includes(player.id)) {
+                              setDealerWinTargets(dealerWinTargets.filter(id => id !== player.id));
+                            } else {
+                              setDealerWinTargets([...dealerWinTargets, player.id]);
+                            }
+                          }}
+                          sx={{
+                            cursor: 'pointer',
+                            bgcolor: dealerWinTargets.includes(player.id) ? '#2e7d32' : '#e0e0e0',
+                            color: dealerWinTargets.includes(player.id) ? '#fff' : '#666',
+                            '&:hover': {
+                              bgcolor: dealerWinTargets.includes(player.id) ? '#1b5e20' : '#d0d0d0',
+                            },
+                          }}
+                        />
+                      ))}
+                    </Box>
+                    {dealerWinTargets.length > 0 && (
+                      <Typography variant="caption" sx={{ color: '#2e7d32', mt: 1, display: 'block' }}>
+                        {t('xiDachScore.dealer.selectedCount', { count: dealerWinTargets.length })}
+                      </Typography>
+                    )}
+                  </Box>
+                </Collapse>
+              </Collapse>
+
+              {/* Auto-calculate hint for normal mode */}
+              {!isDealerSpecialMode && (
+                <Typography variant="caption" sx={{ color: '#95a5a6' }}>
+                  {t('xiDachScore.dealer.autoCalculateHint')}
+                </Typography>
+              )}
+            </Box>
+          )}
+
+          {/* Player Results */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {nonDealerPlayers.map((player) => {
+              const isDisabled = disabledPlayerIds.includes(player.id);
+              const multiplier = dealerMode === 'xiBan' ? 2 : dealerMode === 'nguLinh' ? 2 : 1;
+              const lossAmount = dealerTuCount * currentSession.settings.pointsPerTu * multiplier;
+
+              // Show disabled player card (auto-lose to dealer)
+              if (isDisabled) {
+                return (
+                  <Box
+                    key={player.id}
+                    sx={{
+                      bgcolor: '#fff',
+                      borderRadius: 2,
+                      p: 2,
+                      border: '1px solid #e0e0e0',
+                      opacity: 0.7,
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#7f8c8d' }}>
+                        {player.name}
+                      </Typography>
+                      <Box
+                        sx={{
+                          px: 1.5,
+                          py: 0.5,
+                          borderRadius: 2,
+                          bgcolor: 'rgba(255, 138, 101, 0.1)',
+                        }}
+                      >
+                        <Typography
+                          variant="body1"
+                          sx={{ fontWeight: 700, color: '#FF8A65' }}
+                        >
+                          -{lossAmount}đ
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Typography variant="caption" sx={{ color: '#95a5a6' }}>
+                      {t('xiDachScore.dealer.autoLose')}
+                    </Typography>
+                  </Box>
+                );
+              }
+
+              // Show normal player input
+              const otherPlayers = activePlayers.filter((p) => p.id !== player.id);
+              return (
+                <PlayerResultInput
+                  key={player.id}
+                  player={player}
+                  data={
+                    playerResults[player.id] || {
+                      playerId: player.id,
+                      outcome: null,
+                      tuCount: 1,
+                      xiBanCount: 0,
+                      nguLinhCount: 0,
+                      penalty28: false,
+                      penalty28Recipients: [],
+                    }
+                  }
+                  settings={currentSession.settings}
+                  otherPlayers={otherPlayers}
+                  onChange={handlePlayerResultChange}
+                  isDealer={false}
+                />
+              );
+            })}
+          </Box>
+        </DialogContent>
+
+        <DialogActions
+          sx={{
+            px: 3,
+            py: 2,
+            borderTop: '1px solid #eee',
+            bgcolor: '#fff',
+          }}
+        >
+          <Button
+            variant="outlined"
+            onClick={onClose}
+            sx={{
+              px: 3,
+              borderColor: '#FF8A65',
+              color: '#FF8A65',
+              background: '#fff',
+              '&:hover': {
+                borderColor: '#E64A19',
+                background: 'rgba(0, 0, 0, 0.04)',
+              },
+            }}
+          >
+            {t('xiDachScore.actions.cancel')}
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSubmit}
+            sx={{
+              px: 4,
+              background: '#FF8A65',
+              color: '#fff',
+              '&:hover': { background: '#E64A19' },
+            }}
+          >
+            {t('xiDachScore.match.confirm')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Success Snackbar */}
+      <Snackbar
+        open={showSuccess}
+        autoHideDuration={2000}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" sx={{ borderRadius: 2 }}>
+          {t('xiDachScore.match.saved', { number: matchNumber })}
+        </Alert>
+      </Snackbar>
+    </>
+  );
+};
+
+export default EndMatchModal;
